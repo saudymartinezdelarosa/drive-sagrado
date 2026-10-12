@@ -113,7 +113,7 @@ Pasos:
 2. Publique la carpeta `pwa/` en un hosting estático con HTTPS (por ejemplo GitHub Pages). El service worker exige HTTPS.
 3. Abra esa dirección en el teléfono. En Android/Chrome aparece **Instalar**. En iPhone (Safari): **Compartir → Agregar a pantalla de inicio**.
 
-**Íconos:** los actuales son un escudo provisional. Para usar el logo oficial del Politécnico Salesiano Sagrado Corazón de Jesús, reemplace los tres PNG de `pwa/icons/` por versiones cuadradas del logo (192×192, 512×512 y 180×180), con el logo centrado y margen sobre fondo `#10204A`. Así Android puede recortarlo en círculo sin cortar el escudo. Después, suba el número de versión de `CACHE` en `pwa/sw.js` (p. ej. `drive-sagrado-v3`) para que los teléfonos tomen los íconos nuevos.
+**Íconos:** se generaron a partir del logo oficial del Politécnico Salesiano Sagrado Corazón de Jesús (`pwa/icons/logo-oficial.png`). Para los íconos de 192, 512 y 180 px se usa el emblema salesiano centrado sobre blanco, dentro de la zona segura, para que Android pueda recortarlo en círculo sin cortarlo; el texto del logo no sería legible a ese tamaño. `pwa/icons/logo.png` es el logo completo con texto. Una vez publicada la carpeta `pwa/`, su dirección (p. ej. `https://<usuario>.github.io/drive-sagrado/icons/logo.png`) puede usarse como propiedad de script `LOGO_URL` para que el portal muestre el logo oficial. Si cambia los íconos, suba el número de versión de `CACHE` en `pwa/sw.js` para que los teléfonos tomen los nuevos.
 
 ## Seguridad y límites
 
