@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#10204A">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <?!= include('Estilos'); ?>
+  <script>
+    // Aplica el tema antes de pintar para evitar parpadeo.
+    try { if (localStorage.getItem('sigesc_tema') === 'dark') document.documentElement.setAttribute('data-theme', 'dark'); } catch (e) {}
+  </script>
+</head>
+<body>
+
+  <!-- Acceso -->
+  <section id="login" class="hidden" aria-labelledby="login-t">
+    <div class="login-card">
+      <div class="sello">
+        <span class="logo-slot"></span>
+        <h1 id="login-t" class="nombre-sistema">SIGESC</h1>
+        <div class="regla-oro"></div>
+        <div class="sub descripcion-sistema"></div>
+        <div class="muted small institucion"></div>
+      </div>
+      <form id="form-login" autocomplete="on">
+        <label class="campo">Usuario
+          <input id="l-usuario" name="username" autocomplete="username" placeholder="nombre.apellido" required autocapitalize="none" spellcheck="false">
+        </label>
+        <label class="campo">Clave
+          <input id="l-clave" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn-primary" type="submit" id="l-boton">Ingresar</button>
+        <div id="l-error" class="small t-bad hidden" role="alert"></div>
+      </form>
+      <div class="login-pie">Acceso exclusivo del personal. Cada acción queda registrada.</div>
+    </div>
+  </section>
+
+  <!-- Aplicación -->
+  <section id="app" class="hidden">
+    <header class="top">
+      <div class="top-inner">
+        <div class="marca">
+          <span class="logo-slot"></span>
+          <div style="min-width:0">
+            <div class="t1 nombre-sistema">SIGESC</div>
+            <div class="t2"><span class="descripcion-sistema"></span> · <span class="institucion"></span></div>
+          </div>
+        </div>
+        <div class="top-acciones">
+          <div class="reloj" title="Tiempo en esta sesión · acumulado de hoy">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/></svg>
+            <span class="seg" id="reloj-sesion">00:00:00</span>
+            <span class="hoy" id="reloj-hoy">Hoy 0 min</span>
+          </div>
+          <button class="btn btn-ghost btn-icon campana" id="b-notif" aria-label="Notificaciones">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            <span class="punto hidden" id="notif-n">0</span>
+          </button>
+          <button class="btn btn-ghost btn-icon" id="b-tema" aria-label="Cambiar tema">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+          </button>
+          <button class="btn btn-ghost btn-icon" id="b-usuario" aria-label="Mi cuenta">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <nav class="tabs" aria-label="Secciones"><div class="tabs-inner" id="tabs"></div></nav>
+    <main id="main" tabindex="-1"></main>
+  </section>
+
+  <div id="capa"></div>
+  <div id="toasts" aria-live="polite"></div>
+
+  <script>var CFG = <?!= cfg ?>;</script>
+  <?!= include('App'); ?>
+</body>
+</html>
