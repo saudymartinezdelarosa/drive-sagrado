@@ -27,7 +27,15 @@ function exigirLectura_(u, areaId) {
 }
 
 function exigirEdicion_(u, areaId) {
-  if (nivelEnArea_(u, areaId) !== 'edicion') throw new Error('Su acceso a esta área es de solo lectura.');
+  var n = nivelEnArea_(u, areaId);
+  if (n === 'edicion') return;
+  if (!n) throw new Error('No tiene acceso a esta área. Puede solicitarlo desde el mapa documental.');
+  throw new Error('Su acceso a esta área es de solo lectura.');
+}
+
+/** ¿Recibe los envíos dirigidos a Calidad? (Administración o miembros del área de Calidad). */
+function esCalidad_(u) {
+  return !!u.permisos.administrar || u.listaAreas.indexOf(CONFIG.AREA_CALIDAD) >= 0;
 }
 
 function exigirPermiso_(u, permiso, mensaje) {
@@ -50,6 +58,7 @@ function capacidades_(u, areaId) {
     crearCarpeta: n === 'edicion',
     cambiarEstado: n === 'edicion' && !!u.permisos.cambiarEstado,
     restaurar: n === 'edicion' && !!u.permisos.restaurar,
+    enviarCalidad: n === 'edicion' && areaId !== CONFIG.AREA_CALIDAD,
     aprobar: puedeAprobar_(u, areaId)
   };
 }

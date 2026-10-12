@@ -54,7 +54,8 @@ function blobDesdeCarga_(archivo) {
 function obtenerDocumento_(u, docId, requiereEdicion) {
   var d = buscar_('Documentos', 'id', docId);
   if (!d) throw new Error('Documento no encontrado.');
-  if (requiereEdicion) exigirEdicion_(u, d.areaId); else exigirLectura_(u, d.areaId);
+  if (requiereEdicion) exigirEdicion_(u, d.areaId);
+  else if (!nivelEnArea_(u, d.areaId) && !(esCalidad_(u) && documentoEnviadoACalidad_(docId))) exigirLectura_(u, d.areaId);
   return d;
 }
 
@@ -99,9 +100,13 @@ function apiSubirDocumento(token, datos) {
         notificar_(m, 'Nuevo documento', u.nombre + ' ' + u.apellido + ' subió ' + sigesc + ' «' + nombre + '» en ' + area.nombre + '.', d.areaId, d.id);
       }
     });
+    // Envío a Calidad en el mismo paso (informes, cronogramas…).
+    if (datos.enviarCalidad && d.areaId !== CONFIG.AREA_CALIDAD) d._envio = registrarEnvio_(u, d, datos.enviarCalidad);
     return d;
   });
-  return documentoPublico_(doc);
+  var r = documentoPublico_(doc);
+  r.enviadoACalidad = !!doc._envio;
+  return r;
 }
 
 /** Reemplaza el archivo vigente por uno nuevo; la versión anterior se conserva. */
@@ -255,6 +260,8 @@ function apiObtenerDocumento(token, docId) {
     ruta: rutaCarpeta_(area, d.carpetaId),
     versiones: versiones,
     historial: historialDocumento_(docId),
+    envios: filtrar_('Envios', function (e) { return e.docId === docId; }).reverse().map(envioPublico_),
+    tiposEnvio: CONFIG.TIPOS_ENVIO,
     capacidades: capacidades_(u, d.areaId)
   };
 }
@@ -279,6 +286,85 @@ function apiDescargar(token, docId, version, modo) {
   registrarAuditoria_(u.usuario, modo === 'ver' ? 'VISUALIZACION' : 'DESCARGA', d.areaId, d.id, d.sigesc,
     (modo === 'ver' ? 'Visualizó' : 'Descargó') + ' v' + v + ' «' + nombre + '»');
   return { nombre: d.sigesc + ' · ' + nombre, mimeType: mime, base64: Utilities.base64Encode(blob.getBytes()) };
+}
+
+/* ---------- Impresión: cualquier documento se entrega como PDF ---------- */
+
+var CONVERSION_GOOGLE = {
+  docx: 'application/vnd.google-apps.document', doc: 'application/vnd.google-apps.document',
+  odt: 'application/vnd.google-apps.document', rtf: 'application/vnd.google-apps.document',
+  txt: 'application/vnd.google-apps.document', html: 'application/vnd.google-apps.document', htm: 'application/vnd.google-apps.document',
+  xlsx: 'application/vnd.google-apps.spreadsheet', xls: 'application/vnd.google-apps.spreadsheet',
+  ods: 'application/vnd.google-apps.spreadsheet', csv: 'application/vnd.google-apps.spreadsheet',
+  pptx: 'application/vnd.google-apps.presentation', ppt: 'application/vnd.google-apps.presentation',
+  odp: 'application/vnd.google-apps.presentation'
+};
+var EXTENSION_POR_MIME = {
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx', 'application/msword': 'doc',
+  'application/vnd.oasis.opendocument.text': 'odt', 'application/rtf': 'rtf', 'text/rtf': 'rtf', 'text/plain': 'txt', 'text/html': 'html',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx', 'application/vnd.ms-excel': 'xls',
+  'application/vnd.oasis.opendocument.spreadsheet': 'ods', 'text/csv': 'csv',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx', 'application/vnd.ms-powerpoint': 'ppt',
+  'application/vnd.oasis.opendocument.presentation': 'odp'
+};
+
+/** Hoja de cálculo de Google → PDF horizontal y ajustado al ancho (cronogramas legibles). */
+function pdfHojaCalculo_(id) {
+  try {
+    var url = 'https://docs.google.com/spreadsheets/d/' + id + '/export?format=pdf&size=letter&portrait=false&fitw=true' +
+      '&gridlines=true&printtitle=false&sheetnames=false&pagenum=CENTER&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4';
+    var resp = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (resp.getResponseCode() === 200) return resp.getBlob();
+  } catch (e) {
+    console.warn('Exportación horizontal: ' + e);
+  }
+  return DriveApp.getFileById(id).getAs('application/pdf');
+}
+
+/** Convierte un archivo de Drive a PDF para verlo o imprimirlo en el navegador. */
+function pdfDeArchivo_(file, nombre) {
+  var mime = file.getMimeType();
+  if (mime === 'application/pdf') return file.getBlob();
+  if (mime === 'application/vnd.google-apps.spreadsheet') return pdfHojaCalculo_(file.getId());
+  if (/^application\/vnd\.google-apps\./.test(mime)) return file.getAs('application/pdf');
+  if (/^image\//.test(mime)) return file.getBlob().getAs('application/pdf');
+
+  var ext = (String(nombre || '').match(/\.([a-z0-9]+)$/i) || [])[1];
+  ext = ext ? ext.toLowerCase() : EXTENSION_POR_MIME[mime];
+  var destino = CONVERSION_GOOGLE[ext] || CONVERSION_GOOGLE[EXTENSION_POR_MIME[mime]];
+  if (!destino) throw new Error('Este tipo de archivo no se puede imprimir desde el portal. Descárguelo y ábralo en su programa.');
+  if (typeof Drive === 'undefined') {
+    throw new Error('Falta activar el servicio avanzado «Drive API» en el proyecto de Apps Script para imprimir archivos de Word, Excel o PowerPoint.');
+  }
+  // Copia temporal convertida a formato de Google; se exporta a PDF y se envía a la papelera.
+  var temporal = Drive.Files.create({ name: 'SIGESC-impresion-' + file.getId(), mimeType: destino }, file.getBlob());
+  try {
+    return destino === 'application/vnd.google-apps.spreadsheet'
+      ? pdfHojaCalculo_(temporal.id)
+      : DriveApp.getFileById(temporal.id).getAs('application/pdf');
+  } finally {
+    try { DriveApp.getFileById(temporal.id).setTrashed(true); } catch (e) {}
+  }
+}
+
+/**
+ * Entrega el documento (o una versión) como PDF, listo para ver o imprimir.
+ * Sirve para Word, Excel, PowerPoint, PDF, imágenes y archivos de Google.
+ */
+function apiImprimir(token, docId, version, modo) {
+  var u = sesion_(token);
+  var d = obtenerDocumento_(u, docId, false);
+  var fileId = d.fileId, nombre = d.archivo, v = Number(d.version);
+  if (version && Number(version) !== Number(d.version)) {
+    var ver = filtrar_('Versiones', function (x) { return x.docId === docId && Number(x.version) === Number(version); })[0];
+    if (!ver) throw new Error('Versión no encontrada.');
+    fileId = ver.fileId; nombre = ver.archivo; v = Number(version);
+  }
+  var pdf = pdfDeArchivo_(DriveApp.getFileById(fileId), nombre);
+  var nombrePdf = d.sigesc + ' · ' + String(nombre).replace(/\.[^.]*$/, '') + '.pdf';
+  registrarAuditoria_(u.usuario, modo === 'ver' ? 'VISUALIZACION' : 'IMPRESION', d.areaId, d.id, d.sigesc,
+    (modo === 'ver' ? 'Visualizó (PDF) ' : 'Preparó para imprimir ') + 'v' + v + ' «' + nombre + '»');
+  return { nombre: nombrePdf, mimeType: 'application/pdf', base64: Utilities.base64Encode(pdf.getBytes()) };
 }
 
 /**

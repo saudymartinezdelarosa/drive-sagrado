@@ -119,6 +119,8 @@ const IC = {
   moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M15 8l2 2"/></svg>',
   mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
+  print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>',
   out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>'
 };
 
@@ -238,6 +240,7 @@ function pintarTabs() {
     ['buscar', 'Buscar'],
     ['tiempo', 'Mi tiempo']
   ];
+  tabs.push(['envios', S.ini.esCalidad ? 'Bandeja de Calidad' : 'Envíos a Calidad', S.ini.enviosPendientes]);
   if (u.permisos.aprobarAccesos || S.ini.solicitudesPendientes) tabs.push(['solicitudes', 'Solicitudes', S.ini.solicitudesPendientes]);
   if (u.permisos.administrar || u.permisos.verAuditoria) tabs.push(['admin', u.permisos.administrar ? 'Administración' : 'Auditoría']);
   $('#tabs').innerHTML = tabs.map(t => `<button class="tab${S.vista === t[0] ? ' activa' : ''}" data-vista="${t[0]}">${h(t[1])}${t[2] ? ` <span class="cuenta">${t[2]}</span>` : ''}</button>`).join('');
@@ -249,7 +252,7 @@ function ir(vista, ...args) {
   $$('#tabs .tab').forEach(b => b.classList.toggle('activa', b.dataset.vista === (vista === 'area' ? 'mapa' : vista)));
   cerrarCapas();
   window.scrollTo(0, 0);
-  const vistas = { inicio: vInicio, mapa: vMapa, area: vArea, buscar: vBuscar, tiempo: vTiempo, solicitudes: vSolicitudes, admin: vAdmin };
+  const vistas = { inicio: vInicio, mapa: vMapa, area: vArea, buscar: vBuscar, tiempo: vTiempo, envios: vEnvios, solicitudes: vSolicitudes, admin: vAdmin };
   (vistas[vista] || vInicio)(...args);
 }
 
@@ -328,8 +331,9 @@ function vInicio() {
       <h1>${saludoHora()}, ${h(u.nombre)}</h1>
       <div class="fecha">${mayuscula(fechaLarga(new Date()))}</div>
       <div class="frase">«${h(S.ini.frase)}»</div>
-      <div class="acciones"><button class="btn btn-sm" id="b-voz" title="Escuchar el saludo">${IC.speaker} Escuchar</button></div>
+      <div class="acciones">${areaPropia() ? `<button class="btn btn-sm" id="b-enviar-cal">${IC.send} Enviar informe a Calidad</button>` : ''}<button class="btn btn-sm" id="b-voz" title="Escuchar el saludo">${IC.speaker} Escuchar</button></div>
     </section>
+    ${S.ini.esCalidad && S.ini.enviosPendientes ? `<div class="aviso aviso-envios" style="margin-bottom:16px">${IC.send}<div><b>${S.ini.enviosPendientes} envío(s) por revisar</b> en la bandeja de Calidad. <button class="enlace" id="b-ir-bandeja">Abrir bandeja</button></div></div>` : ''}
 
     <div class="kpis" style="margin-bottom:16px">
       ${kpi(g.total, 'Documentos')}
@@ -362,7 +366,15 @@ function vInicio() {
       ${p.actividad.length ? `<div class="lista">${p.actividad.map(itemActividad).join('')}</div>` : '<div class="muted">Todavía no hay actividad registrada.</div>'}
     </section>`;
   $('#b-voz').addEventListener('click', () => { desbloquearVoz(); saludarEnVoz(); });
+  if ($('#b-enviar-cal')) $('#b-enviar-cal').addEventListener('click', () => modalSubir(areaPropia(), null, true));
+  if ($('#b-ir-bandeja')) $('#b-ir-bandeja').addEventListener('click', () => ir('envios'));
   enlazarDocs($('#main'));
+}
+
+/** Primera área propia (edición) distinta de Calidad: donde se guardan los informes que se envían. */
+function areaPropia() {
+  const id = (S.ini.usuario.areas || []).find(a => a !== S.ini.areaCalidad && areaPorId(a).nivel === 'edicion');
+  return id || null;
 }
 
 function filaSalud(a) {
@@ -621,11 +633,21 @@ function enlazarZona(id, alElegir) {
   zona.addEventListener('drop', ev => { ev.preventDefault(); zona.classList.remove('sobre'); elegir(ev.dataTransfer.files[0]); });
 }
 
-function modalSubir(areaId, carpetaId) {
+function camposEnvio(prefijo, marcado) {
+  return `<div class="campo ancho">Tipo de documento<select id="${prefijo}-tipo">${(S.ini.tiposEnvio || ['Informe']).map(t => `<option>${h(t)}</option>`).join('')}</select></div>
+    <label class="campo ancho">Período o fecha a la que corresponde<input id="${prefijo}-periodo" maxlength="80" placeholder="Ej.: Septiembre 2026, 1er trimestre, año escolar 2026-2027"></label>
+    <label class="campo ancho">Mensaje para Calidad (opcional)<textarea id="${prefijo}-msg" maxlength="500" placeholder="Ej.: Adjunto el informe mensual del segundo ciclo."></textarea></label>`;
+}
+function leerEnvio(prefijo) {
+  return { tipo: $('#' + prefijo + '-tipo').value, periodo: $('#' + prefijo + '-periodo').value, mensaje: $('#' + prefijo + '-msg').value };
+}
+
+function modalSubir(areaId, carpetaId, enviarCalidad) {
   let archivo = null;
   const u = S.ini.usuario;
+  const puedeEnviar = areaId !== S.ini.areaCalidad;
   modal({
-    titulo: 'Subir documento',
+    titulo: enviarCalidad ? 'Enviar informe a Calidad' : 'Subir documento',
     ancho: false,
     cuerpo: `
       ${zonaArchivo('m-archivo')}
@@ -636,28 +658,54 @@ function modalSubir(areaId, carpetaId) {
         <label class="campo">Próxima revisión<input id="m-rev" type="date" value="${sumarMeses(S.ini.revisionMeses || 12)}"></label>
         <label class="campo ancho">Etiquetas<input id="m-etq" maxlength="200" placeholder="Ej.: plan anual, 2026, auditoría"></label>
       </div>
-      <p class="small muted" style="margin:12px 0 0">El código SIGESC se genera automáticamente. Responsable: <b>${h(u.nombre)} ${h(u.apellido)}</b>.</p>`,
+      ${puedeEnviar ? `<div class="envio-caja">
+        <label class="check"><input type="checkbox" id="m-enviar"${enviarCalidad ? ' checked' : ''}> <span><b>Enviar también al Departamento de Calidad</b> (informes, cronogramas…)</span></label>
+        <div class="form-grid${enviarCalidad ? '' : ' hidden'}" id="m-envio" style="margin-top:10px">${camposEnvio('m-env')}</div>
+      </div>` : ''}
+      <p class="small muted" style="margin:12px 0 0">Se guarda en <b>${h(areaPorId(areaId).nombre)}</b>. El código SIGESC se genera automáticamente. Responsable: <b>${h(u.nombre)} ${h(u.apellido)}</b>.</p>`,
     acciones: [
       { t: 'Cancelar' },
-      { t: 'Subir', p: true, fn: (cerrar, btn) => {
+      { t: enviarCalidad ? 'Guardar y enviar' : 'Subir', p: true, fn: (cerrar, btn) => {
         if (!archivo) return toast('Seleccione un archivo.', true);
-        btn.disabled = true; btn.textContent = 'Subiendo…';
+        const textoBtn = btn.textContent;
+        const enviar = puedeEnviar && $('#m-enviar').checked;
+        btn.disabled = true; btn.textContent = enviar ? 'Enviando…' : 'Subiendo…';
         leerArchivo(archivo).then(a => api('apiSubirDocumento', {
           areaId, carpetaId, archivo: a,
           nombre: $('#m-nombre').value, descripcion: $('#m-desc').value, estado: $('#m-estado').value,
-          fechaRevision: $('#m-rev').value, etiquetas: $('#m-etq').value
+          fechaRevision: $('#m-rev').value, etiquetas: $('#m-etq').value,
+          enviarCalidad: enviar ? leerEnvio('m-env') : null
         })).then(d => {
           cerrar();
-          toast(`Documento guardado con el código ${d.sigesc}.`);
+          toast(d.enviadoACalidad ? `Documento ${d.sigesc} guardado y enviado a Calidad.` : `Documento guardado con el código ${d.sigesc}.`);
           refrescarInicio().catch(() => {});
-          vArea(areaId, carpetaId);
-        }).catch(e => { btn.disabled = false; btn.textContent = 'Subir'; falla(e); });
+          if (S.vista === 'envios') vEnvios(); else vArea(areaId, carpetaId);
+        }).catch(e => { btn.disabled = false; btn.textContent = textoBtn; falla(e); });
       } }
     ],
-    alAbrir: () => enlazarZona('m-archivo', f => {
-      archivo = f;
-      if (!$('#m-nombre').value) $('#m-nombre').value = f.name.replace(/\.[^.]+$/, '');
-    })
+    alAbrir: () => {
+      enlazarZona('m-archivo', f => {
+        archivo = f;
+        if (!$('#m-nombre').value) $('#m-nombre').value = f.name.replace(/\.[^.]+$/, '');
+      });
+      if ($('#m-enviar')) $('#m-enviar').addEventListener('change', ev => $('#m-envio').classList.toggle('hidden', !ev.target.checked));
+    }
+  });
+}
+
+function modalEnviarDoc(d, alTerminar) {
+  modal({
+    titulo: 'Enviar a Calidad',
+    cuerpo: `<p class="small muted" style="margin-top:0">Se enviará <b>${h(d.sigesc)} «${h(d.nombre)}»</b> (versión ${d.version}) al Departamento de Calidad. El documento sigue guardado en su área.</p>
+      <div class="form-grid">${camposEnvio('e')}</div>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Enviar', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true; btn.textContent = 'Enviando…';
+        api('apiEnviarACalidad', d.id, leerEnvio('e')).then(() => { cerrar(); toast('Enviado a Calidad. Se notificó al departamento.'); alTerminar(); })
+          .catch(e => { btn.disabled = false; btn.textContent = 'Enviar'; falla(e); });
+      } }
+    ]
   });
 }
 
@@ -688,9 +736,12 @@ function pintarDocumento(m, r, pestana) {
       <div><span>Etiquetas</span>${h(d.etiquetas || '—')}</div>
       ${d.descripcion ? `<div style="grid-column:1/-1"><span>Descripción</span>${h(d.descripcion)}</div>` : ''}
     </div>
+    ${(r.envios || []).length ? `<div class="envios-doc">${r.envios.map(e => `<div class="small">${IC.send} ${h(e.tipo)}${e.periodo ? ' · ' + h(e.periodo) : ''} enviado a Calidad el ${fechaHora(e.fecha)} (v${e.version}) · ${badgeEnvio(e.estado)}${e.comentario ? ` <span class="muted">«${h(e.comentario)}»</span>` : ''}</div>`).join('')}</div>` : ''}
     <div class="barra-herr">
       <button class="btn btn-primary" id="d-ver">${IC.eye} Ver</button>
+      <button class="btn" id="d-imprimir">${IC.print} Imprimir</button>
       <button class="btn" id="d-bajar">${IC.down} Descargar</button>
+      ${cap.enviarCalidad && d.estado !== 'Obsoleto' ? `<button class="btn" id="d-enviar">${IC.send} Enviar a Calidad</button>` : ''}
       ${cap.subir ? `<button class="btn" id="d-version">${IC.up} Nueva versión</button>` : ''}
       ${cap.subir ? `<button class="btn" id="d-editar">${IC.pen} Editar datos</button>` : ''}
       ${cap.cambiarEstado ? `<select id="d-estado" style="width:auto" aria-label="Cambiar estado">
@@ -718,9 +769,11 @@ function pintarDocumento(m, r, pestana) {
           <td class="small">${h(v.nota || '—')}</td>
           <td style="white-space:nowrap">
             <button class="btn btn-sm btn-icon" data-bajar-v="${v.version}" title="Descargar v${v.version}" aria-label="Descargar v${v.version}">${IC.down}</button>
+            <button class="btn btn-sm btn-icon" data-imprimir-v="${v.version}" title="Imprimir v${v.version}" aria-label="Imprimir v${v.version}">${IC.print}</button>
             ${cap.restaurar && v.version !== d.version ? `<button class="btn btn-sm" data-restaurar="${v.version}">${IC.restore} Restaurar</button>` : ''}
           </td></tr>`).join('')}</tbody></table></div>`;
       $$('[data-bajar-v]', cont).forEach(b => b.addEventListener('click', () => descargar(d.id, Number(b.dataset.bajarV), 'descargar', b)));
+      $$('[data-imprimir-v]', cont).forEach(b => b.addEventListener('click', () => imprimir(d.id, Number(b.dataset.imprimirV), b)));
       $$('[data-restaurar]', cont).forEach(b => b.addEventListener('click', () => {
         const v = Number(b.dataset.restaurar);
         confirmar(`¿Restaurar la versión ${v}? Se creará la versión ${d.version + 1} con ese contenido; la actual se conserva en el historial.`, 'Restaurar', (nota) =>
@@ -738,6 +791,8 @@ function pintarDocumento(m, r, pestana) {
   pintarPestana(pestana);
   $('#d-ver', m.el).addEventListener('click', (ev) => descargar(d.id, null, 'ver', ev.currentTarget));
   $('#d-bajar', m.el).addEventListener('click', (ev) => descargar(d.id, null, 'descargar', ev.currentTarget));
+  $('#d-imprimir', m.el).addEventListener('click', (ev) => imprimir(d.id, null, ev.currentTarget));
+  if ($('#d-enviar', m.el)) $('#d-enviar', m.el).addEventListener('click', () => modalEnviarDoc(d, () => { refrescarContadores(); recargar('historial'); }));
   if ($('#d-version', m.el)) $('#d-version', m.el).addEventListener('click', () => modalNuevaVersion(d, () => recargar('versiones')));
   if ($('#d-editar', m.el)) $('#d-editar', m.el).addEventListener('click', () => modalEditarDoc(d, () => recargar('historial')));
   if ($('#d-estado', m.el)) $('#d-estado', m.el).addEventListener('change', (ev) => {
@@ -812,10 +867,57 @@ function descargar(docId, version, modo, boton) {
         acciones: [{ t: 'Descargar', fn: () => bajarBlob(url, r.nombre) }, { t: 'Cerrar', p: true }],
         alCerrar: () => setTimeout(() => URL.revokeObjectURL(url), 1000)
       });
+    } else if (modo === 'ver') {
+      // Word, Excel, PowerPoint…: el servidor lo convierte a PDF para verlo aquí.
+      URL.revokeObjectURL(url);
+      imprimir(docId, version, null, true);
     } else {
-      if (modo === 'ver') toast('Este tipo de archivo no se puede previsualizar; se descargará.');
       bajarBlob(url, r.nombre);
       setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  }).catch(e => { if (boton) { boton.disabled = false; boton.innerHTML = texto; } falla(e); });
+}
+
+const ES_MOVIL = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function base64ABlob(b64, tipo) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: tipo });
+}
+
+/**
+ * Prepara cualquier documento como PDF (Word, Excel, PowerPoint, imágenes…) y
+ * abre una vista previa con los botones Imprimir, Abrir y Descargar.
+ */
+function imprimir(docId, version, boton, soloVer) {
+  const texto = boton ? boton.innerHTML : '';
+  if (boton) { boton.disabled = true; boton.innerHTML = '<span class="giro" style="width:16px;height:16px"></span> Preparando…'; }
+  else toast('Preparando el documento…');
+  api('apiImprimir', docId, version, soloVer ? 'ver' : 'imprimir').then(r => {
+    if (boton) { boton.disabled = false; boton.innerHTML = texto; }
+    const url = URL.createObjectURL(base64ABlob(r.base64, 'application/pdf'));
+    const abrir = () => { const w = window.open(url, '_blank'); if (!w) bajarBlob(url, r.nombre); };
+    const m = modal({
+      titulo: r.nombre, ancho: true,
+      cuerpo: ES_MOVIL
+        ? `<div class="aviso">${IC.print}<div>El documento está listo en PDF. Toque <b>Abrir PDF</b> y luego use <b>Compartir → Imprimir</b> (iPhone) o el menú <b>⋮ → Imprimir</b> (Android).</div></div>`
+        : `<iframe class="visor" id="visor-pdf" src="${url}" title="${h(r.nombre)}"></iframe>`,
+      acciones: [
+        { t: 'Descargar PDF', fn: () => bajarBlob(url, r.nombre) },
+        { t: 'Abrir PDF', fn: abrir },
+        { t: 'Imprimir', p: true, fn: () => {
+          const f = $('#visor-pdf');
+          try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { abrir(); }
+        } }
+      ],
+      alCerrar: () => setTimeout(() => URL.revokeObjectURL(url), 1000)
+    });
+    if (ES_MOVIL) {
+      const b = $$('.modal-pie button', m.el).find(x => x.textContent === 'Imprimir');
+      if (b) b.remove();
+      $$('.modal-pie button', m.el).find(x => x.textContent === 'Abrir PDF').classList.add('btn-primary');
     }
   }).catch(e => { if (boton) { boton.disabled = false; boton.innerHTML = texto; } falla(e); });
 }
@@ -874,7 +976,7 @@ function vTiempo(usuario) {
         <p class="muted">Tiempo dedicado a buscar y guardar documentos, día por día.</p></div>
         ${r.equipo ? `<select id="t-usuario" style="width:auto">${r.equipo.map(x => `<option value="${h(x.usuario)}"${x.usuario === r.usuario ? ' selected' : ''}>${h(x.nombre)}</option>`).join('')}</select>` : ''}
       </div>
-      <div class="kpis" style="grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:16px">
+      <div class="kpis kpis-4" style="margin-bottom:16px">
         ${propio ? `<div class="kpi"><div class="l">Esta sesión</div><div class="v mono" id="t-sesion" style="font-size:28px">${reloj(S.reloj.sesion)}</div></div>` : ''}
         <div class="kpi"><div class="l">Hoy</div><div class="v">${duracion((r.serie[r.serie.length - 1] || {}).segundos || 0)}</div></div>
         <div class="kpi"><div class="l">Últimos 30 días</div><div class="v">${duracion(r.totalPeriodo)}</div></div>
@@ -899,6 +1001,78 @@ function vTiempo(usuario) {
     if (propio) {
       const t = setInterval(() => { const el = $('#t-sesion'); if (!el) return clearInterval(t); el.textContent = reloj(S.reloj.sesion); }, 1000);
     }
+  }).catch(falla);
+}
+
+/* =====================================================================
+ *  Vista: Envíos a Calidad (bandeja de Calidad / mis envíos)
+ * ===================================================================== */
+
+function badgeEnvio(estado) {
+  const cls = estado === 'Recibido' ? 'b-vigente' : estado === 'Enviado' ? 'b-revision' : 'b-obsoleto';
+  return `<span class="badge ${cls}">${h(estado === 'Enviado' ? 'Por revisar' : estado)}</span>`;
+}
+
+function refrescarContadores() {
+  return api('apiInicio').then(ini => { S.ini.enviosPendientes = ini.enviosPendientes; S.ini.solicitudesPendientes = ini.solicitudesPendientes; pintarTabs(); }).catch(() => {});
+}
+
+function vEnvios() {
+  const f = S.envFiltro || (S.envFiltro = { estado: S.ini.esCalidad ? 'Enviado' : '', areaId: '', tipo: '' });
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Cargando…</div>';
+  api('apiEnvios', f).then(r => {
+    const calidad = r.calidad;
+    const propia = areaPropia();
+    $('#main').innerHTML = `
+      <div class="titulo-vista"><div><h1>${calidad ? 'Bandeja de Calidad' : 'Envíos a Calidad'}</h1>
+        <p class="muted">${calidad ? 'Informes, cronogramas y demás documentos que las áreas envían al Departamento de Calidad.' : 'Envíe sus informes y cronogramas al Departamento de Calidad y vea si fueron recibidos.'}</p></div>
+        <div class="barra-herr" style="margin:0">
+          ${propia ? `<button class="btn btn-primary" id="b-env-nuevo">${IC.send} Enviar informe o cronograma</button>` : ''}
+          <button class="btn" id="b-env-imprimir">${IC.print} Imprimir lista</button>
+        </div>
+      </div>
+      <div class="filtros no-imprimir">
+        <select id="ef-estado"><option value="">Todos los estados</option>${['Enviado', 'Recibido', 'Devuelto'].map(e => `<option value="${e}"${f.estado === e ? ' selected' : ''}>${e === 'Enviado' ? 'Por revisar' : e}</option>`).join('')}</select>
+        <select id="ef-tipo"><option value="">Todos los tipos</option>${r.tipos.map(t => `<option${f.tipo === t ? ' selected' : ''}>${h(t)}</option>`).join('')}</select>
+        ${calidad ? `<select id="ef-area"><option value="">Todas las áreas</option>${S.ini.mapa.filter(a => a.id !== S.ini.areaCalidad).map(a => `<option value="${h(a.id)}"${f.areaId === a.id ? ' selected' : ''}>${h(a.nombre)}</option>`).join('')}</select>` : ''}
+      </div>
+      <p class="small muted">${r.envios.length} envío(s)${f.estado ? ' · ' + (f.estado === 'Enviado' ? 'por revisar' : f.estado.toLowerCase()) : ''}.</p>
+      ${r.envios.length ? `<div class="tabla-wrap"><table class="tabla-envios">
+        <thead><tr><th>Fecha</th><th>Área</th><th>Documento</th><th>Tipo</th><th>Enviado por</th><th>Estado</th><th class="no-imprimir"></th></tr></thead>
+        <tbody>${r.envios.map(e => `<tr>
+          <td class="small" style="white-space:nowrap">${fechaHora(e.fecha)}</td>
+          <td class="small"><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${h(e.areaColor)}"></span> ${h(e.areaNombre)}</td>
+          <td><button class="enlace" data-doc="${h(e.docId)}"><b>${h(e.documento)}</b></button>
+            <div class="small muted"><span class="mono">${h(e.sigesc)}</span> · v${e.version}${e.versionActual > e.version ? ` <span class="t-warn">(hay v${e.versionActual})</span>` : ''}</div>
+            ${e.mensaje ? `<div class="small">«${h(e.mensaje)}»</div>` : ''}</td>
+          <td class="small">${h(e.tipo)}${e.periodo ? `<div class="muted">${h(e.periodo)}</div>` : ''}</td>
+          <td class="small">${h(e.nombre)}</td>
+          <td>${badgeEnvio(e.estado)}${e.revisadoPorNombre ? `<div class="small muted">${h(e.revisadoPorNombre)} · ${fechaCorta(e.fechaRevisado)}</div>` : ''}${e.comentario ? `<div class="small">«${h(e.comentario)}»</div>` : ''}</td>
+          <td class="no-imprimir"><div class="acciones-envio">
+            <button class="btn btn-sm btn-icon" data-imp="${h(e.docId)}" data-v="${e.version}" title="Imprimir" aria-label="Imprimir">${IC.print}</button>
+            ${calidad && e.estado !== 'Recibido' ? `<button class="btn btn-sm" data-recibir="${h(e.id)}">${IC.check} Recibido</button>` : ''}
+            ${calidad && e.estado === 'Enviado' ? `<button class="btn btn-sm btn-danger" data-devolver="${h(e.id)}">Devolver</button>` : ''}
+          </div></td></tr>`).join('')}</tbody></table></div>` :
+        `<div class="card vacio">${calidad ? 'No hay envíos con estos filtros.' : 'Todavía no ha enviado documentos a Calidad.'}</div>`}`;
+    const refiltrar = () => { S.envFiltro = { estado: $('#ef-estado').value, tipo: $('#ef-tipo').value, areaId: $('#ef-area') ? $('#ef-area').value : '' }; vEnvios(); };
+    $$('#ef-estado, #ef-tipo, #ef-area').forEach(x => x.addEventListener('change', refiltrar));
+    if ($('#b-env-nuevo')) $('#b-env-nuevo').addEventListener('click', () => modalSubir(propia, null, true));
+    $('#b-env-imprimir').addEventListener('click', () => window.print());
+    $$('[data-imp]').forEach(b => b.addEventListener('click', () => imprimir(b.dataset.imp, Number(b.dataset.v), b)));
+    $$('[data-recibir]').forEach(b => b.addEventListener('click', () => {
+      b.disabled = true;
+      api('apiResolverEnvio', b.dataset.recibir, 'Recibido', '').then(() => { toast('Marcado como recibido. Se avisó a quien lo envió.'); refrescarContadores(); vEnvios(); }).catch(e => { b.disabled = false; falla(e); });
+    }));
+    $$('[data-devolver]').forEach(b => b.addEventListener('click', () => modal({
+      titulo: 'Devolver con observaciones',
+      cuerpo: '<label class="campo">Observaciones para el área<textarea id="dv-com" maxlength="500" placeholder="Ej.: Falta la firma y el anexo de asistencia."></textarea></label>',
+      acciones: [{ t: 'Cancelar' }, { t: 'Devolver', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiResolverEnvio', b.dataset.devolver, 'Devuelto', $('#dv-com').value).then(() => { cerrar(); toast('Envío devuelto. Se avisó a quien lo envió.'); refrescarContadores(); vEnvios(); }).catch(e => { btn.disabled = false; falla(e); });
+      } }],
+      alAbrir: () => $('#dv-com').focus()
+    })));
+    enlazarDocs($('#main'));
   }).catch(falla);
 }
 
@@ -1096,7 +1270,7 @@ function adminAccesos() {
     api('apiAdminRevocarAcceso', b.dataset.revocar).then(() => { toast('Acceso revocado.'); vAdmin(); }))));
 }
 
-const ACCIONES_AUD = { SUBIDA: 'Subida', NUEVA_VERSION: 'Nueva versión', EDICION: 'Edición de datos', ESTADO: 'Cambio de estado', RESTAURACION: 'Restauración', DESCARGA: 'Descarga', VISUALIZACION: 'Visualización', CARPETA: 'Carpeta', SOLICITUD: 'Solicitud de acceso', ACCESO: 'Acceso', ADMIN: 'Administración', LOGIN: 'Ingreso', LOGOUT: 'Salida', LOGIN_FALLIDO: 'Intento fallido', CAMBIO_CLAVE: 'Cambio de clave' };
+const ACCIONES_AUD = { ENVIO: 'Envío a Calidad', REVISION_ENVIO: 'Revisión de envío', IMPRESION: 'Impresión', SUBIDA: 'Subida', NUEVA_VERSION: 'Nueva versión', EDICION: 'Edición de datos', ESTADO: 'Cambio de estado', RESTAURACION: 'Restauración', DESCARGA: 'Descarga', VISUALIZACION: 'Visualización', CARPETA: 'Carpeta', SOLICITUD: 'Solicitud de acceso', ACCESO: 'Acceso', ADMIN: 'Administración', LOGIN: 'Ingreso', LOGOUT: 'Salida', LOGIN_FALLIDO: 'Intento fallido', CAMBIO_CLAVE: 'Cambio de clave' };
 
 function adminAuditoria() {
   const usuarios = S.admin.datos ? S.admin.datos.usuarios : [];

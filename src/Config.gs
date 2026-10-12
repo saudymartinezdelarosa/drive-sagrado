@@ -35,7 +35,13 @@ var CONFIG = {
   AVISO_DIAS: [30, 15, 7, 1, 0],     // días antes del vencimiento en que se avisa
   HORA_AVISOS: 7,                    // hora del aviso diario
 
-  ESTADOS: ['Vigente', 'En revisión', 'Obsoleto']
+  ESTADOS: ['Vigente', 'En revisión', 'Obsoleto'],
+
+  // Envíos a Calidad: cualquier área puede enviar sus informes y cronogramas al
+  // Departamento de Calidad, aunque no tenga acceso a la carpeta de Calidad.
+  AREA_CALIDAD: 'CAL',
+  TIPOS_ENVIO: ['Informe', 'Cronograma', 'Plan de trabajo', 'Acta', 'Evidencia', 'Otro'],
+  ESTADOS_ENVIO: ['Enviado', 'Recibido', 'Devuelto']
 };
 
 /**
@@ -104,6 +110,7 @@ var TABLAS = {
   Auditoria:      ['fecha', 'usuario', 'accion', 'areaId', 'docId', 'sigesc', 'detalle'],
   Notificaciones: ['id', 'usuario', 'fecha', 'tipo', 'mensaje', 'areaId', 'docId', 'leida'],
   Uso:            ['fecha', 'usuario', 'segundos', 'sesiones'],
+  Envios:         ['id', 'docId', 'areaId', 'sigesc', 'version', 'tipo', 'periodo', 'mensaje', 'usuario', 'fecha', 'estado', 'revisadoPor', 'fechaRevisado', 'comentario'],
   Contadores:     ['clave', 'valor']
 };
 

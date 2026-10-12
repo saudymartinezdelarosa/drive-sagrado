@@ -7,7 +7,8 @@ var ACCIONES = {
   LOGIN: 'Ingreso', LOGOUT: 'Salida', LOGIN_FALLIDO: 'Intento fallido', CAMBIO_CLAVE: 'Cambio de clave',
   SUBIDA: 'Subida', NUEVA_VERSION: 'Nueva versión', EDICION: 'Edición de datos', ESTADO: 'Cambio de estado',
   RESTAURACION: 'Restauración', DESCARGA: 'Descarga', VISUALIZACION: 'Visualización',
-  CARPETA: 'Carpeta', SOLICITUD: 'Solicitud de acceso', ACCESO: 'Acceso', ADMIN: 'Administración'
+  CARPETA: 'Carpeta', SOLICITUD: 'Solicitud de acceso', ACCESO: 'Acceso', ADMIN: 'Administración',
+  ENVIO: 'Envío a Calidad', REVISION_ENVIO: 'Revisión de envío', IMPRESION: 'Impresión'
 };
 
 function registrarAuditoria_(usuario, accion, areaId, docId, sigesc, detalle) {
