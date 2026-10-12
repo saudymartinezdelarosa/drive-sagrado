@@ -25,7 +25,7 @@ con su propio usuario interno, sin cuentas de Google.
 | Cronómetro de uso | Reloj visible desde 00:00:00 en cada ingreso. Acumula el tiempo por persona y por día; *Mi tiempo* muestra el histórico. Dirección y Calidad ven el del equipo. |
 | Saludo | «Buenos días, [nombre]», la fecha y una frase que cambia cada día. También se dice en voz alta (se puede desactivar). |
 | Diseño | Azul marino `#10204A` y dorado `#C9A227`, tipografía serif formal, botones con relieve suave, color pastel propio por área y **modo oscuro** con los colores institucionales invertidos. |
-| PWA | Contenedor instalable con ícono en la pantalla de inicio del teléfono (carpeta `pwa/`). |
+| PWA | «Drive Sagrado», instalable con ícono en la pantalla de inicio de Android y iPhone (carpeta `pwa/`). |
 
 ## Estructura
 
@@ -44,7 +44,7 @@ src/                     Proyecto de Apps Script
   Panel.gs               Panel de control, mapa y salud documental
   Admin.gs               Usuarios, áreas, accesos y solicitudes
   Index.html / Estilos.html / App.html   Interfaz del portal
-pwa/                     Contenedor PWA (se publica aparte, p. ej. en GitHub Pages)
+pwa/                     Contenedor PWA «Drive Sagrado» (se publica aparte, p. ej. en GitHub Pages)
 ```
 
 ## Instalación
@@ -95,15 +95,25 @@ El **Departamento de Pastoral** queda creado sin responsable. Cuando se conozca,
 
 Los roles se ajustan en `ROLES` (`Config.gs`). El acceso adicional a otras áreas se otorga por solicitud o desde *Administración → Accesos otorgados*.
 
-## PWA (instalar en el teléfono)
+## PWA «Drive Sagrado» (instalar en el teléfono)
 
-Apps Script no puede servir un `manifest` ni un *service worker* propios. Por eso `pwa/` es un contenedor ligero que se publica aparte y abre el portal a pantalla completa:
+Apps Script sirve el portal dentro de un marco de Google, en otro dominio, así que el navegador no acepta allí un `manifest` ni un *service worker*. Por eso `pwa/` es un contenedor ligero que se publica aparte y abre el portal a pantalla completa:
+
+| Archivo | Para qué sirve |
+|---|---|
+| `pwa/manifest.json` | Nombre «Drive Sagrado», colores `#10204A`, modo `standalone`, íconos de 192 y 512 px. |
+| `pwa/sw.js` | Guarda los archivos esenciales del contenedor (HTML, manifest, íconos) para que abra con conexión inestable, y cumple el requisito del navegador para ofrecer «Instalar». El portal y los documentos **no** se guardan en caché: siempre se piden en línea, para respetar permisos y auditoría. |
+| `pwa/index.html` | Enlaza el manifest, registra el service worker, incluye las etiquetas para iPhone (`apple-touch-icon`, `apple-mobile-web-app-capable`) y muestra una barra discreta «Instalar» (en iPhone indica *Compartir → Agregar a pantalla de inicio*). |
+| `pwa/config.js` | La URL `/exec` de la aplicación web de Apps Script. |
+| `pwa/icons/` | `icon-192.png`, `icon-512.png`, `apple-touch-icon.png` (180 px). |
+
+Pasos:
 
 1. Edite `pwa/config.js` y pegue la URL `/exec` de la aplicación web.
-2. Publique la carpeta `pwa/` en un hosting estático con HTTPS. Con GitHub Pages: *Settings → Pages*, y despliegue la carpeta `pwa` (por ejemplo, con una GitHub Action o copiándola a la rama `gh-pages`).
-3. Abra esa dirección en el teléfono → *Agregar a la pantalla de inicio* (Android/Chrome lo ofrece como «Instalar app»).
+2. Publique la carpeta `pwa/` en un hosting estático con HTTPS (por ejemplo GitHub Pages). El service worker exige HTTPS.
+3. Abra esa dirección en el teléfono. En Android/Chrome aparece **Instalar**. En iPhone (Safari): **Compartir → Agregar a pantalla de inicio**.
 
-Reemplace los íconos de `pwa/icons/` (`icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `logo.png`) por versiones del logo oficial.
+**Íconos:** los actuales son un escudo provisional. Para usar el logo oficial del Politécnico Salesiano Sagrado Corazón de Jesús, reemplace los tres PNG de `pwa/icons/` por versiones cuadradas del logo (192×192, 512×512 y 180×180), con el logo centrado y margen sobre fondo `#10204A`. Así Android puede recortarlo en círculo sin cortar el escudo. Después, suba el número de versión de `CACHE` en `pwa/sw.js` (p. ej. `drive-sagrado-v3`) para que los teléfonos tomen los íconos nuevos.
 
 ## Seguridad y límites
 

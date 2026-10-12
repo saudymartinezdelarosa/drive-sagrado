@@ -3,50 +3,106 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>SIGESC · Sistema de Gestión Documental</title>
-  <meta name="description" content="Gestión documental del Politécnico">
+  <title>Drive Sagrado</title>
+  <meta name="description" content="Portal de gestión documental del Politécnico Salesiano Sagrado Corazón de Jesús">
   <meta name="theme-color" content="#10204A">
-  <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/logo.png" type="image/png">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <!-- iOS / iPadOS -->
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="SIGESC">
+  <meta name="apple-mobile-web-app-title" content="Drive Sagrado">
   <style>
-    html, body { margin: 0; height: 100%; background: #10204A; overflow: hidden; }
-    iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #10204A; padding-top: env(safe-area-inset-top); box-sizing: border-box; }
-    #carga { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-      color: #E0C25A; font: 600 20px Georgia, 'Times New Roman', serif; letter-spacing: 1px; transition: opacity .4s; }
-    #carga img { width: 84px; height: 84px; }
-    #carga small { color: #C8CEE0; font: 400 13px system-ui, sans-serif; letter-spacing: 0; }
+    :root { --navy: #10204A; --gold: #C9A227; --gold-2: #E0C25A; --texto: #C8CEE0; }
+    html, body { margin: 0; height: 100%; background: var(--navy); overflow: hidden; }
+    iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: var(--navy);
+      padding-top: env(safe-area-inset-top); box-sizing: border-box; }
+    #carga { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+      color: var(--gold-2); font: 600 22px Georgia, 'Times New Roman', serif; letter-spacing: 1px; transition: opacity .4s; }
+    #carga img { width: 88px; height: 88px; border-radius: 18px; }
+    #carga small { color: var(--texto); font: 400 13px system-ui, sans-serif; letter-spacing: 0; }
     #aviso { display: none; position: fixed; inset: 0; color: #fff; font: 15px system-ui, sans-serif; padding: 24px; text-align: center; align-items: center; justify-content: center; }
+    /* Barra de instalación: discreta, institucional, se puede cerrar. */
+    #instalar { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 5;
+      display: none; align-items: center; gap: 12px; max-width: 520px; margin: 0 auto; padding: 12px 14px;
+      background: var(--navy); color: #fff; border: 1px solid var(--gold); border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35); font: 14px/1.35 system-ui, sans-serif; }
+    #instalar img { width: 36px; height: 36px; border-radius: 8px; flex: none; }
+    #instalar .txt { flex: 1; min-width: 0; }
+    #instalar b { color: var(--gold-2); }
+    #instalar button { font: 700 14px system-ui, sans-serif; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+    #b-instalar { color: var(--navy); background: linear-gradient(180deg, #DDBB4B, var(--gold)); border: 1px solid rgba(120,90,10,.5);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.4), 0 2px 5px rgba(0,0,0,.25); }
+    #b-cerrar { color: var(--texto); background: none; border: 0; padding: 8px; font-size: 18px; line-height: 1; }
   </style>
 </head>
 <body>
-  <div id="carga"><img src="icons/logo.png" alt=""><div>SIGESC</div><small>Sistema de Gestión Documental</small></div>
+  <div id="carga"><img src="icons/icon-192.png" alt=""><div>Drive Sagrado</div><small>Gestión documental</small></div>
   <div id="aviso"></div>
+  <div id="instalar" role="dialog" aria-label="Instalar la aplicación">
+    <img src="icons/icon-192.png" alt="">
+    <div class="txt" id="instalar-txt"><b>Instale Drive Sagrado</b><br>Ábralo desde la pantalla de inicio, como una aplicación.</div>
+    <button id="b-instalar" type="button">Instalar</button>
+    <button id="b-cerrar" type="button" aria-label="Cerrar">×</button>
+  </div>
   <script src="config.js"></script>
   <script>
     (function () {
+      // 1. Portal (aplicación web de Apps Script) a pantalla completa.
       var url = window.SIGESC_URL || '';
       if (!/^https:\/\/script\.google\.com\/.+\/exec/.test(url)) {
         var a = document.getElementById('aviso');
         a.style.display = 'flex';
         a.textContent = 'Falta configurar la URL de la aplicación web en pwa/config.js.';
         document.getElementById('carga').style.display = 'none';
-        return;
+      } else {
+        var f = document.createElement('iframe');
+        f.src = url;
+        f.title = 'Drive Sagrado';
+        f.allow = 'autoplay; clipboard-write; fullscreen';
+        f.onload = function () { var c = document.getElementById('carga'); c.style.opacity = 0; setTimeout(function () { c.remove(); }, 400); };
+        document.body.appendChild(f);
       }
-      var f = document.createElement('iframe');
-      f.src = url;
-      f.title = 'SIGESC';
-      f.allow = 'autoplay; clipboard-write; fullscreen';
-      f.onload = function () { var c = document.getElementById('carga'); c.style.opacity = 0; setTimeout(function () { c.remove(); }, 400); };
-      document.body.appendChild(f);
+
+      // 2. Service worker: caché de archivos esenciales y requisito para instalar.
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+      }
+
+      // 3. Invitación a instalar (Android/Chrome/Edge con el aviso del navegador; iPhone con instrucciones).
+      var barra = document.getElementById('instalar');
+      var instalada = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      var cerrada = false;
+      try { cerrada = localStorage.getItem('ds_instalar_cerrado') === '1'; } catch (e) {}
+      var evento = null;
+      function mostrar() { if (!instalada && !cerrada) barra.style.display = 'flex'; }
+      function ocultar() { barra.style.display = 'none'; }
+
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        evento = e;
+        mostrar();
+      });
+      document.getElementById('b-instalar').addEventListener('click', function () {
+        if (!evento) return;
+        evento.prompt();
+        evento.userChoice.finally(function () { evento = null; ocultar(); });
+      });
+      document.getElementById('b-cerrar').addEventListener('click', function () {
+        ocultar();
+        try { localStorage.setItem('ds_instalar_cerrado', '1'); } catch (e) {}
+      });
+      window.addEventListener('appinstalled', ocultar);
+
+      var esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      if (esIOS && !instalada) {
+        document.getElementById('instalar-txt').innerHTML = '<b>Instale Drive Sagrado</b><br>Toque <b>Compartir</b> y luego <b>Agregar a pantalla de inicio</b>.';
+        document.getElementById('b-instalar').style.display = 'none';
+        setTimeout(mostrar, 2500);
+      }
     })();
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
-    }
   </script>
 </body>
 </html>
