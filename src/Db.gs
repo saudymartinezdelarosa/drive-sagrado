@@ -17,7 +17,15 @@ function ss_() {
 
 function hoja_(nombre) {
   var h = ss_().getSheetByName(nombre);
-  if (!h) throw new Error('Falta la pestaña "' + nombre + '" en la hoja índice.');
+  if (!h) {
+    // Pestañas nuevas (p. ej. Envios) en una hoja creada con una versión anterior.
+    if (!TABLAS[nombre]) throw new Error('Falta la pestaña "' + nombre + '" en la hoja índice.');
+    h = ss_().insertSheet(nombre);
+    var cols = TABLAS[nombre];
+    h.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold')
+      .setBackground('#10204A').setFontColor('#FFFFFF');
+    h.setFrozenRows(1);
+  }
   return h;
 }
 

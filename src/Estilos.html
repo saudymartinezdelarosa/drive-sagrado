@@ -401,6 +401,13 @@ tr:last-child td { border-bottom: 0; }
 @keyframes giro { to { transform: rotate(360deg); } }
 .aviso { padding: 12px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); font-size: 14px; display: flex; gap: 10px; align-items: flex-start; }
 .aviso svg { width: 22px; height: 22px; flex: none; margin-top: 1px; }
+.kpis.kpis-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.envio-caja { margin-top: 14px; padding: 12px 14px; border: 1px dashed var(--gold); border-radius: 10px; background: var(--surface-2); }
+.envios-doc { display: grid; gap: 4px; margin: -4px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.envios-doc svg, .btn svg { vertical-align: -3px; }
+.envios-doc svg { width: 15px; height: 15px; }
+.tabla-envios td { vertical-align: top; }
+.acciones-envio { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; }
 .zona-archivo svg { width: 28px; height: 28px; }
 .zona-archivo { border: 2px dashed var(--line); border-radius: 12px; padding: 22px; text-align: center; cursor: pointer; background: var(--surface-2); }
 .zona-archivo.sobre { border-color: var(--gold); }
@@ -426,6 +433,9 @@ tr:last-child td { border-bottom: 0; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .g-2, .g-3, .form-grid, .meta { grid-template-columns: 1fr; }
   .salud-fila { grid-template-columns: minmax(0, 1fr) 84px; }
+  .salud-fila .nom span:last-child { white-space: normal; }
+  .kpis.kpis-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .modal-pie .btn { flex: 1 1 auto; }
   .salud-fila .barra { grid-column: 1 / -1; grid-row: 2; }
   .doc-fila { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
   .doc-fila.cab { display: none; }
@@ -440,6 +450,20 @@ tr:last-child td { border-bottom: 0; }
   .mapa, .grupo .mapa { grid-template-columns: 1fr; }
 }
 @media print {
-  header.top, nav.tabs, .barra-herr, #toasts { display: none !important; }
+  /* Impresión en papel: siempre colores claros, sin menús ni botones. */
+  :root, :root[data-theme="dark"] { --bg: #fff; --surface: #fff; --surface-2: #F6F6F6; --text: #000; --muted: #444; --line: #BBB; }
+  html, body { background: #fff !important; color: #000 !important; }
+  header.top, nav.tabs, .barra-herr, #toasts, #capa, .no-imprimir, .modal-pie, .modal-cab .btn, .modal .subtabs, .modal td .btn, .saludo .acciones, .filtros { display: none !important; }
+  .card, .docs, .kpi, .tabla-wrap { box-shadow: none !important; }
+  .tabla-wrap { overflow: visible !important; }
+  table { width: 100%; border-collapse: collapse; }
+  tr, .lista-item, .doc-fila, .kpi { break-inside: avoid; page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  /* Con una ficha abierta, se imprime solo la ficha. */
+  body:has(.velo) > section { display: none !important; }
+  .velo { position: static !important; background: none !important; padding: 0 !important; overflow: visible !important; }
+  .modal { box-shadow: none !important; max-width: none !important; border: 0 !important; }
+  .visor { display: none !important; }
+  @page { margin: 14mm; }
 }
 </style>

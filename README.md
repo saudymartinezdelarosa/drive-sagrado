@@ -20,6 +20,8 @@ con su propio usuario interno, sin cuentas de Google.
 | Historial y auditoría | Quién subió, modificó, vio o descargó cada documento y cuándo, con el detalle «antes → después». La auditoría completa se puede filtrar y exportar a CSV. |
 | Buscador | Por código SIGESC, nombre, etiquetas, responsable y **contenido** del archivo (índice de texto completo de Drive: PDF, Word, Docs…). Solo muestra resultados de áreas a las que la persona tiene acceso. |
 | Notificaciones | Campana en el portal y, si la persona registra su correo, aviso por email. Avisa de revisiones por vencer (30, 15, 7, 1 y 0 días, y cada semana si está vencida), documentos nuevos en el área, cambios de estado y solicitudes de acceso. |
+| Envíos a Calidad | Cualquier área envía sus **informes, cronogramas**, planes, actas o evidencias al Departamento de Calidad sin necesitar acceso a la carpeta de Calidad: al subir el documento (casilla «Enviar también a Calidad») o desde la ficha (botón «Enviar a Calidad»). Calidad los ve en su **Bandeja de Calidad**, recibe aviso en la campana/correo y los marca como *Recibido* o los *Devuelve* con observaciones; quien envió recibe la respuesta. |
+| Imprimir | Botón **Imprimir** en cada documento y versión: el portal lo convierte a PDF (Word, Excel, PowerPoint, PDF, imágenes y archivos de Google; las hojas de cálculo salen en horizontal y ajustadas al ancho). En el teléfono se abre el PDF para imprimir desde *Compartir → Imprimir*. Las listas (p. ej. la bandeja de Calidad) se imprimen limpias, en blanco y sin menús. |
 | Panel de control | Totales por estado, próximas revisiones, documentos en revisión y actividad reciente. |
 | Salud documental | % por área de documentos vigentes con la revisión al día. |
 | Cronómetro de uso | Reloj visible desde 00:00:00 en cada ingreso. Acumula el tiempo por persona y por día; *Mi tiempo* muestra el histórico. Dirección y Calidad ven el del equipo. |
@@ -41,6 +43,7 @@ src/                     Proyecto de Apps Script
   Auditoria.gs           Registro de auditoría e historial por documento
   Notificaciones.gs      Campana, correo y avisos de vencimiento
   Uso.gs                 Cronómetro e histórico de uso
+  Envios.gs              Envíos de informes y cronogramas a Calidad (bandeja)
   Panel.gs               Panel de control, mapa y salud documental
   Admin.gs               Usuarios, áreas, accesos y solicitudes
   Index.html / Estilos.html / App.html   Interfaz del portal
@@ -63,7 +66,9 @@ pwa/                     Contenedor PWA «Drive Sagrado» (se publica aparte, p.
    - Quién tiene acceso: **Cualquier usuario**
 
    Comparta la URL `/exec` con el equipo. El acceso real lo controla el login del portal.
-5. **Logo oficial.** Suba el logo del Politécnico (PNG) a un lugar público, por ejemplo `pwa/icons/logo.png` en GitHub Pages, y defina la propiedad de script `LOGO_URL` con su dirección. Mientras tanto se muestra un escudo provisional.
+5. **Servicio avanzado de Drive (para imprimir Word/Excel/PowerPoint).** El manifiesto ya lo declara (`Drive API v3`). Si copia los archivos a mano, en el editor vaya a *Servicios → Agregar un servicio → Drive API* (versión v3, identificador `Drive`). Después ejecute cualquier función (p. ej. `instalarDisparadores`) para aceptar los permisos nuevos.
+6. **Actualizar la aplicación publicada.** Tras copiar los cambios: *Implementar → Administrar implementaciones → editar (lápiz) → Versión: Nueva versión → Implementar*. Así la URL `/exec` no cambia. Si crea una implementación nueva, la URL cambia y hay que ponerla en `pwa/config.js`.
+7. **Logo oficial.** Suba el logo del Politécnico (PNG) a un lugar público, por ejemplo `pwa/icons/logo.png` en GitHub Pages, y defina la propiedad de script `LOGO_URL` con su dirección. Mientras tanto se muestra un escudo provisional.
 
 ### Usuarios iniciales
 

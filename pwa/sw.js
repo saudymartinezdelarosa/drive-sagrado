@@ -3,7 +3,7 @@
 // conexión sea inestable, y cumple el requisito del navegador para ofrecer
 // «Instalar». El portal y los documentos (Apps Script / Google) nunca se guardan
 // en caché: siempre se piden en línea, para respetar los permisos y la auditoría.
-const CACHE = 'drive-sagrado-v4';
+const CACHE = 'drive-sagrado-v5';
 const ESENCIALES = [
   './',
   './index.html',
