@@ -1,0 +1,17 @@
+{
+  "name": "SIGESC · Sistema de Gestión Documental",
+  "short_name": "SIGESC",
+  "description": "Gestión documental del Politécnico: documentos, versiones y trazabilidad.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#10204A",
+  "theme_color": "#10204A",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

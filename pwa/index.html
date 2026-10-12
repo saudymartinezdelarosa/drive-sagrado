@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SIGESC · Sistema de Gestión Documental</title>
+  <meta name="description" content="Gestión documental del Politécnico">
+  <meta name="theme-color" content="#10204A">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/logo.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SIGESC">
+  <style>
+    html, body { margin: 0; height: 100%; background: #10204A; overflow: hidden; }
+    iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #10204A; padding-top: env(safe-area-inset-top); box-sizing: border-box; }
+    #carga { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+      color: #E0C25A; font: 600 20px Georgia, 'Times New Roman', serif; letter-spacing: 1px; transition: opacity .4s; }
+    #carga img { width: 84px; height: 84px; }
+    #carga small { color: #C8CEE0; font: 400 13px system-ui, sans-serif; letter-spacing: 0; }
+    #aviso { display: none; position: fixed; inset: 0; color: #fff; font: 15px system-ui, sans-serif; padding: 24px; text-align: center; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+  <div id="carga"><img src="icons/logo.png" alt=""><div>SIGESC</div><small>Sistema de Gestión Documental</small></div>
+  <div id="aviso"></div>
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      var url = window.SIGESC_URL || '';
+      if (!/^https:\/\/script\.google\.com\/.+\/exec/.test(url)) {
+        var a = document.getElementById('aviso');
+        a.style.display = 'flex';
+        a.textContent = 'Falta configurar la URL de la aplicación web en pwa/config.js.';
+        document.getElementById('carga').style.display = 'none';
+        return;
+      }
+      var f = document.createElement('iframe');
+      f.src = url;
+      f.title = 'SIGESC';
+      f.allow = 'autoplay; clipboard-write; fullscreen';
+      f.onload = function () { var c = document.getElementById('carga'); c.style.opacity = 0; setTimeout(function () { c.remove(); }, 400); };
+      document.body.appendChild(f);
+    })();
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+    }
+  </script>
+</body>
+</html>
