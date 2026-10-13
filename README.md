@@ -52,6 +52,8 @@ pwa/                     Contenedor PWA «Drive Sagrado» (se publica aparte, p.
 
 ## Instalación
 
+> **Forma rápida:** la carpeta `despliegue/archivos/` trae todo el código del servidor combinado en un solo `Codigo.gs`, más los `.html` y el `appsscript.json`, listos para pegar en el editor. Pasos en `despliegue/LEEME.md`.
+
 1. **Crear el proyecto.** En <https://script.google.com>, con la cuenta de Saudy, cree un proyecto nuevo y copie todos los archivos de `src/` (en *Configuración del proyecto*, active «Mostrar el archivo de manifiesto appsscript.json» para pegarlo).
    Otra opción es usar [clasp](https://github.com/google/clasp): `clasp create --type webapp --rootDir src`, y luego `clasp push`.
 2. **(Opcional) Elegir la clave genérica.** En *Configuración del proyecto → Propiedades de script*, agregue `CLAVE_INICIAL` con el dígito elegido (1–9). Si no la define, se usa `1`.

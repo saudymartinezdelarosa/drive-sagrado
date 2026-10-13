@@ -1,0 +1,1482 @@
+<script>
+'use strict';
+
+/* =====================================================================
+ *  SIGESC · Portal de gestión documental (cliente)
+ * ===================================================================== */
+
+const S = {
+  token: null,
+  ini: null,          // datos de inicio (usuario, panel, mapa…)
+  vista: 'inicio',
+  vistaMapa: 'tarjetas',
+  admin: { tab: 'usuarios', datos: null },
+  reloj: { sesion: 0, pendiente: 0, hoy: 0, timer: null },
+  voz: true
+};
+
+/* ---------- Utilidades ---------- */
+const $ = (sel, raiz) => (raiz || document).querySelector(sel);
+const $$ = (sel, raiz) => Array.from((raiz || document).querySelectorAll(sel));
+const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function guardarLocal(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function leerLocal(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function guardarSesion(v) { try { v ? sessionStorage.setItem('sigesc_token', v) : sessionStorage.removeItem('sigesc_token'); } catch (e) {} }
+function leerSesion() { try { return sessionStorage.getItem('sigesc_token'); } catch (e) { return null; } }
+
+/** Llama a una función del servidor con el token de sesión. */
+function api(fn, ...args) {
+  return new Promise((resolver, rechazar) => {
+    google.script.run
+      .withSuccessHandler(resolver)
+      .withFailureHandler(err => {
+        const msg = (err && err.message) || String(err);
+        if (msg.indexOf('SESION_EXPIRADA') >= 0) {
+          cerrarSesionLocal();
+          toast('Su sesión expiró. Ingrese nuevamente.', true);
+        }
+        rechazar(new Error(msg.replace(/^Error:\s*/, '').replace(/^Exception:\s*/, '')));
+      })[fn](S.token, ...args);
+  });
+}
+
+function toast(msg, error) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (error ? ' error' : '');
+  t.textContent = msg;
+  $('#toasts').appendChild(t);
+  setTimeout(() => t.remove(), error ? 6500 : 3800);
+}
+
+function falla(e) { toast(e.message || String(e), true); }
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+
+function fechaLarga(d) { return `${DIAS[d.getDay()]}, ${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`; }
+function mayuscula(t) { return t.charAt(0).toUpperCase() + t.slice(1); }
+function fechaCorta(iso) {
+  if (!iso) return '—';
+  const d = iso.length <= 10 ? new Date(iso + 'T12:00:00') : new Date(iso);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+function fechaHora(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return fechaCorta(iso) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function hace(iso) {
+  const s = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'hace un momento';
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86400) return `hace ${Math.floor(s / 3600)} h`;
+  if (s < 86400 * 7) return `hace ${Math.floor(s / 86400)} d`;
+  return fechaCorta(iso);
+}
+function reloj(seg) {
+  seg = Math.max(0, Math.floor(seg));
+  return [Math.floor(seg / 3600), Math.floor(seg % 3600 / 60), seg % 60].map(n => String(n).padStart(2, '0')).join(':');
+}
+function duracion(seg) {
+  seg = Math.round(seg || 0);
+  if (seg < 60) return seg + ' s';
+  const hh = Math.floor(seg / 3600), mm = Math.floor(seg % 3600 / 60);
+  return hh ? `${hh} h ${mm} min` : `${mm} min`;
+}
+function tamano(b) {
+  b = Number(b || 0);
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return Math.round(b / 1024) + ' KB';
+  return (b / 1048576).toFixed(1) + ' MB';
+}
+function hoyIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function sumarMeses(meses) {
+  const d = new Date(); d.setMonth(d.getMonth() + meses);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/* ---------- Íconos ---------- */
+const IC = {
+  folder: (c) => `<svg class="icon-folder" viewBox="0 0 48 48" aria-hidden="true"><path d="M4 12a4 4 0 0 1 4-4h10l4 5h18a4 4 0 0 1 4 4v19a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4z" fill="${c}" stroke="rgba(16,32,74,.35)" stroke-width="1.5"/><path d="M4 18h40" stroke="rgba(16,32,74,.18)" stroke-width="1.5"/></svg>`,
+  lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+  eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+  up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5M12 3v12"/></svg>',
+  down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5M12 15V3"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+  x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  speaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  doc: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>',
+  restore: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>',
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.3-9.3M17 6l3 3M15 8l2 2"/></svg>',
+  mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>',
+  print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+  send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/></svg>',
+  out: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>'
+};
+
+const LOGO_POR_DEFECTO = `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M32 3 56 12v18c0 15-10 26-24 31C18 56 8 45 8 30V12z" fill="#10204A" stroke="#C9A227" stroke-width="3"/><path d="M32 12v40M20 24h24" stroke="#C9A227" stroke-width="3" stroke-linecap="round"/><circle cx="32" cy="24" r="4" fill="#C9A227"/></svg>`;
+
+function pintarMarca() {
+  $$('.nombre-sistema').forEach(e => e.textContent = CFG.sistema);
+  $$('.descripcion-sistema').forEach(e => e.textContent = CFG.descripcion);
+  $$('.institucion').forEach(e => e.textContent = CFG.institucion);
+  $$('.logo-slot').forEach(e => {
+    e.innerHTML = CFG.logo ? `<img src="${h(CFG.logo)}" alt="Logo del ${h(CFG.institucion)}">` : LOGO_POR_DEFECTO;
+  });
+}
+
+/* ---------- Estado de documento ---------- */
+function badgeEstado(estado) {
+  const cls = estado === 'Vigente' ? 'b-vigente' : estado === 'En revisión' ? 'b-revision' : 'b-obsoleto';
+  return `<span class="badge ${cls}">${h(estado)}</span>`;
+}
+function textoRevision(d) {
+  if (d.estado === 'Obsoleto' || d.diasRevision == null) return `<span class="muted">${fechaCorta(d.fechaRevision)}</span>`;
+  if (d.diasRevision < 0) return `<span class="t-bad">${fechaCorta(d.fechaRevision)} · vencida</span>`;
+  if (d.diasRevision <= 30) return `<span class="t-warn">${fechaCorta(d.fechaRevision)} · ${d.diasRevision === 0 ? 'hoy' : 'en ' + d.diasRevision + ' d'}</span>`;
+  return `<span class="muted">${fechaCorta(d.fechaRevision)}</span>`;
+}
+function claseSalud(p) { return p == null ? 'muted' : p >= 80 ? 't-ok' : p >= 50 ? 't-warn' : 't-bad'; }
+function colorSalud(p) { return p == null ? 'var(--line)' : p >= 80 ? 'var(--ok)' : p >= 50 ? 'var(--warn)' : 'var(--bad)'; }
+function etiquetaSalud(p) { return p == null ? 'Sin documentos' : p >= 80 ? 'Al día' : p >= 50 ? 'Atención' : 'Crítico'; }
+
+function areaPorId(id) { return (S.ini.mapa || []).find(a => a.id === id) || { id, nombre: id, color: '#E5E7EB' }; }
+
+/* =====================================================================
+ *  Acceso
+ * ===================================================================== */
+
+function mostrarLogin() {
+  $('#app').classList.add('hidden');
+  $('#login').classList.remove('hidden');
+  setTimeout(() => $('#l-usuario').focus(), 50);
+}
+
+function cerrarSesionLocal() {
+  detenerReloj();
+  S.token = null; S.ini = null;
+  guardarSesion(null);
+  cerrarCapas();
+  mostrarLogin();
+}
+
+$('#form-login').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  desbloquearVoz();
+  const usuario = $('#l-usuario').value.trim();
+  const clave = $('#l-clave').value;
+  const boton = $('#l-boton');
+  boton.disabled = true; boton.textContent = 'Verificando…';
+  $('#l-error').classList.add('hidden');
+  google.script.run
+    .withSuccessHandler(r => {
+      S.token = r.token;
+      guardarSesion(r.token);
+      $('#l-clave').value = '';
+      boton.disabled = false; boton.textContent = 'Ingresar';
+      arrancar(true);
+    })
+    .withFailureHandler(e => {
+      boton.disabled = false; boton.textContent = 'Ingresar';
+      const el = $('#l-error');
+      el.textContent = String(e.message || e).replace(/^(Error|Exception):\s*/, '');
+      el.classList.remove('hidden');
+    })
+    .apiLogin(usuario, clave);
+});
+
+function salir() {
+  enviarPulso();
+  const t = S.token;
+  google.script.run.apiLogout(t);
+  cerrarSesionLocal();
+}
+
+/* =====================================================================
+ *  Arranque
+ * ===================================================================== */
+
+function arrancar(recienEntrado) {
+  $('#login').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Preparando su espacio…</div>';
+  api('apiInicio').then(ini => {
+    S.ini = ini;
+    S.reloj.hoy = ini.usoHoy;
+    iniciarReloj();
+    pintarTabs();
+    actualizarCampana(ini.notificacionesSinLeer);
+    ir('inicio');
+    if (recienEntrado) {
+      saludarEnVoz();
+      if (ini.usuario.debeCambiar) setTimeout(() => modalClave(true), 600);
+    }
+  }).catch(falla);
+}
+
+function refrescarInicio() {
+  return api('apiPanel').then(r => {
+    S.ini.panel = r.panel;
+    S.ini.mapa = r.mapa;
+  });
+}
+
+/* ---------- Pestañas ---------- */
+function pintarTabs() {
+  const u = S.ini.usuario;
+  const tabs = [
+    ['inicio', 'Inicio'],
+    ['mapa', 'Mapa documental'],
+    ['buscar', 'Buscar'],
+    ['tiempo', 'Mi tiempo']
+  ];
+  tabs.push(['envios', S.ini.esCalidad ? 'Bandeja de Calidad' : 'Envíos a Calidad', S.ini.enviosPendientes]);
+  if (u.permisos.aprobarAccesos || S.ini.solicitudesPendientes) tabs.push(['solicitudes', 'Solicitudes', S.ini.solicitudesPendientes]);
+  if (u.permisos.administrar || u.permisos.verAuditoria) tabs.push(['admin', u.permisos.administrar ? 'Administración' : 'Auditoría']);
+  $('#tabs').innerHTML = tabs.map(t => `<button class="tab${S.vista === t[0] ? ' activa' : ''}" data-vista="${t[0]}">${h(t[1])}${t[2] ? ` <span class="cuenta">${t[2]}</span>` : ''}</button>`).join('');
+  $$('#tabs .tab').forEach(b => b.addEventListener('click', () => ir(b.dataset.vista)));
+}
+
+function ir(vista, ...args) {
+  S.vista = vista;
+  $$('#tabs .tab').forEach(b => b.classList.toggle('activa', b.dataset.vista === (vista === 'area' ? 'mapa' : vista)));
+  cerrarCapas();
+  window.scrollTo(0, 0);
+  const vistas = { inicio: vInicio, mapa: vMapa, area: vArea, buscar: vBuscar, tiempo: vTiempo, envios: vEnvios, solicitudes: vSolicitudes, admin: vAdmin };
+  (vistas[vista] || vInicio)(...args);
+}
+
+/* =====================================================================
+ *  Saludo (texto + voz)
+ * ===================================================================== */
+
+function saludoHora() {
+  const hr = new Date().getHours();
+  return hr < 12 ? 'Buenos días' : hr < 19 ? 'Buenas tardes' : 'Buenas noches';
+}
+
+function desbloquearVoz() {
+  // iOS/Safari solo permiten la voz si se inicia durante un gesto del usuario.
+  try { if ('speechSynthesis' in window) speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch (e) {}
+}
+
+function saludarEnVoz() {
+  if (leerLocal('sigesc_voz') === 'no') return;
+  if (!('speechSynthesis' in window)) return;
+  const u = S.ini.usuario;
+  const texto = `${saludoHora()}, ${u.nombre}. Hoy es ${fechaLarga(new Date())}. ${S.ini.frase}`;
+  try {
+    speechSynthesis.cancel();
+    const m = new SpeechSynthesisUtterance(texto);
+    m.lang = 'es-ES';
+    m.rate = 0.97;
+    const voces = speechSynthesis.getVoices();
+    const voz = voces.find(v => /es[-_](DO|MX|US|419)/i.test(v.lang)) || voces.find(v => /^es/i.test(v.lang));
+    if (voz) { m.voice = voz; m.lang = voz.lang; }
+    speechSynthesis.speak(m);
+  } catch (e) {}
+}
+if ('speechSynthesis' in window) { try { speechSynthesis.getVoices(); } catch (e) {} }
+
+/* =====================================================================
+ *  Cronómetro de uso
+ * ===================================================================== */
+
+function iniciarReloj() {
+  detenerReloj();
+  S.reloj.sesion = 0;
+  S.reloj.pendiente = 0;
+  pintarReloj();
+  S.reloj.timer = setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    S.reloj.sesion++;
+    S.reloj.pendiente++;
+    pintarReloj();
+    if (S.reloj.pendiente >= 60) enviarPulso();
+  }, 1000);
+}
+function detenerReloj() { if (S.reloj.timer) clearInterval(S.reloj.timer); S.reloj.timer = null; }
+function pintarReloj() {
+  $('#reloj-sesion').textContent = reloj(S.reloj.sesion);
+  $('#reloj-hoy').textContent = 'Hoy ' + duracion(S.reloj.hoy + S.reloj.pendiente);
+}
+function enviarPulso() {
+  if (!S.token || !S.reloj.pendiente) return;
+  const s = S.reloj.pendiente;
+  S.reloj.pendiente = 0;
+  api('apiPulso', s).then(r => { S.reloj.hoy = r.hoy; pintarReloj(); }).catch(() => { S.reloj.pendiente += s; });
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') enviarPulso(); });
+
+/* =====================================================================
+ *  Vista: Inicio (panel de control)
+ * ===================================================================== */
+
+function vInicio() {
+  const u = S.ini.usuario, p = S.ini.panel, g = p.global;
+  const kpi = (v, l, extra) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${extra || ''}</div>`;
+  const saludGlobal = g.salud == null ? '—' : g.salud + '%';
+  $('#main').innerHTML = `
+    <section class="saludo" aria-label="Bienvenida">
+      <h1>${saludoHora()}, ${h(u.nombre)}</h1>
+      <div class="fecha">${mayuscula(fechaLarga(new Date()))}</div>
+      <div class="frase">«${h(S.ini.frase)}»</div>
+      <div class="acciones">${areaPropia() ? `<button class="btn btn-sm" id="b-enviar-cal">${IC.send} Enviar informe a Calidad</button>` : ''}<button class="btn btn-sm" id="b-voz" title="Escuchar el saludo">${IC.speaker} Escuchar</button></div>
+    </section>
+    ${S.ini.esCalidad && S.ini.enviosPendientes ? `<div class="aviso aviso-envios" style="margin-bottom:16px">${IC.send}<div><b>${S.ini.enviosPendientes} envío(s) por revisar</b> en la bandeja de Calidad. <button class="enlace" id="b-ir-bandeja">Abrir bandeja</button></div></div>` : ''}
+
+    <div class="kpis" style="margin-bottom:16px">
+      ${kpi(g.total, 'Documentos')}
+      ${kpi(g.vigentes, 'Vigentes', `<div class="estado t-ok">${IC.check} En uso</div>`)}
+      ${kpi(g.enRevision, 'En revisión', `<div class="estado t-warn">${IC.pen} Pendientes</div>`)}
+      ${kpi(g.obsoletos, 'Obsoletos', `<div class="estado muted">Fuera de uso</div>`)}
+      ${kpi(saludGlobal, 'Salud documental', `<div class="estado ${claseSalud(g.salud)}">${g.vencidos} con revisión vencida</div>`)}
+    </div>
+
+    <div class="grid g-2">
+      <section class="card">
+        <h3>Salud documental por área</h3>
+        <p class="small muted" style="margin:-6px 0 12px">Documentos vigentes con la revisión al día, sobre el total no obsoleto.</p>
+        <div class="salud-lista">${S.ini.mapa.map(filaSalud).join('')}</div>
+      </section>
+      <div class="grid" style="align-content:start">
+        <section class="card">
+          <h3>Próximas revisiones</h3>
+          ${listaDocsBreve(p.proximas, 'No hay revisiones en los próximos 30 días.')}
+        </section>
+        <section class="card">
+          <h3>Documentos en revisión</h3>
+          ${listaDocsBreve(p.enRevision, 'No hay documentos en revisión.')}
+        </section>
+      </div>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <h3>Actividad reciente</h3>
+      ${p.actividad.length ? `<div class="lista">${p.actividad.map(itemActividad).join('')}</div>` : '<div class="muted">Todavía no hay actividad registrada.</div>'}
+    </section>`;
+  $('#b-voz').addEventListener('click', () => { desbloquearVoz(); saludarEnVoz(); });
+  if ($('#b-enviar-cal')) $('#b-enviar-cal').addEventListener('click', () => modalSubir(areaPropia(), null, true));
+  if ($('#b-ir-bandeja')) $('#b-ir-bandeja').addEventListener('click', () => ir('envios'));
+  enlazarDocs($('#main'));
+}
+
+/** Primera área propia (edición) distinta de Calidad: donde se guardan los informes que se envían. */
+function areaPropia() {
+  const id = (S.ini.usuario.areas || []).find(a => a !== S.ini.areaCalidad && areaPorId(a).nivel === 'edicion');
+  return id || null;
+}
+
+function filaSalud(a) {
+  const s = a.indicadores.salud;
+  const det = a.indicadores.total ? `${a.indicadores.alDia} de ${a.indicadores.activos} al día` : 'Sin documentos';
+  return `<div class="salud-fila" title="${h(a.nombre)} · ${h(det)}">
+    <div class="nom"><span class="swatch" style="background:${h(a.color)}"></span><span>${h(a.nombre)}</span></div>
+    <div class="barra" role="img" aria-label="${h(a.nombre)}: ${s == null ? 'sin documentos' : s + '%'}"><i style="width:${s || 0}%;background:${colorSalud(s)}"></i></div>
+    <div class="pct ${claseSalud(s)}">${s == null ? '<span class="muted small">—</span>' : s + '%'} <span class="small" style="font-weight:600">${s == null ? '' : etiquetaSalud(s)}</span></div>
+  </div>`;
+}
+
+function listaDocsBreve(docs, vacio) {
+  if (!docs.length) return `<div class="muted small">${vacio}</div>`;
+  return `<div class="lista">${docs.map(d => `
+    <div class="lista-item">
+      <span class="swatch" style="background:${h(areaPorId(d.areaId).color)};margin-top:5px"></span>
+      <div class="que"><button class="enlace" data-doc="${h(d.id)}"><b>${h(d.nombre)}</b></button>
+        <div class="small muted"><span class="mono">${h(d.sigesc)}</span> · ${h(areaPorId(d.areaId).nombre)}</div></div>
+      <div class="small" style="text-align:right">${badgeEstado(d.estado)}<div>${textoRevision(d)}</div></div>
+    </div>`).join('')}</div>`;
+}
+
+function itemActividad(a) {
+  return `<div class="lista-item">
+    <span class="pt"></span>
+    <div class="que"><b>${h(a.nombre)}</b> · ${h(a.accionTexto)}${a.sigesc ? ` · ${a.docId ? `<button class="enlace mono" data-doc="${h(a.docId)}">${h(a.sigesc)}</button>` : `<span class="mono">${h(a.sigesc)}</span>`}` : ''}
+      <div class="small muted">${h(a.detalle)}</div></div>
+    <div class="cuando" title="${h(fechaHora(a.fecha))}">${hace(a.fecha)}</div>
+  </div>`;
+}
+
+function enlazarDocs(raiz) {
+  $$('[data-doc]', raiz).forEach(b => b.addEventListener('click', (ev) => { ev.stopPropagation(); abrirDocumento(b.dataset.doc); }));
+}
+
+/* =====================================================================
+ *  Vista: Mapa documental (transparencia con acceso bloqueado)
+ * ===================================================================== */
+
+function vMapa() {
+  $('#main').innerHTML = `
+    <div class="titulo-vista">
+      <div><h1>Mapa documental</h1>
+      <p class="muted">Todas las áreas de la institución. Solo puede abrir las carpetas para las que tiene acceso.</p></div>
+      <div class="subtabs" style="margin:0">
+        <button class="btn btn-sm${S.vistaMapa === 'tarjetas' ? ' activa' : ''}" data-m="tarjetas">Tarjetas</button>
+        <button class="btn btn-sm${S.vistaMapa === 'arbol' ? ' activa' : ''}" data-m="arbol">Árbol de carpetas</button>
+      </div>
+    </div>
+    <div id="mapa-cont"><div class="cargando"><span class="giro"></span> Cargando…</div></div>`;
+  $$('[data-m]').forEach(b => b.addEventListener('click', () => { S.vistaMapa = b.dataset.m; vMapa(); }));
+  pintarMapa();
+  refrescarInicio().then(() => { if (S.vista === 'mapa') pintarMapa(); }).catch(() => {});
+}
+
+function pintarMapa() {
+  const cont = $('#mapa-cont');
+  if (!cont) return;
+  const areas = S.ini.mapa;
+  if (S.vistaMapa === 'arbol') {
+    cont.innerHTML = areas.map(a => `
+      <div class="arbol-area" style="--c:${h(a.color)}">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+          <button class="enlace" data-area="${h(a.id)}"><b>${h(a.grupo ? a.grupo + ' › ' : '')}${h(a.nombre)}</b></button>
+          ${etiquetaAcceso(a)}
+        </div>
+        ${a.carpetas.length ? arbolHtml(a.carpetas) : '<div class="small muted">Sin subcarpetas</div>'}
+      </div>`).join('');
+  } else {
+    const grupos = {};
+    let html = '';
+    areas.forEach(a => {
+      if (!a.grupo) { html += tarjetaArea(a); return; }
+      if (!grupos[a.grupo]) {
+        grupos[a.grupo] = true;
+        const delGrupo = areas.filter(x => x.grupo === a.grupo);
+        html += `<div class="grupo"><div class="grupo-t">${IC.folder('#E9E4D4')} ${h(a.grupo)}</div><div class="mapa">${delGrupo.map(tarjetaArea).join('')}</div></div>`;
+      }
+    });
+    cont.innerHTML = `<div class="mapa">${html}</div>`;
+  }
+  $$('[data-area]', cont).forEach(b => b.addEventListener('click', () => entrarArea(b.dataset.area)));
+}
+
+function arbolHtml(nodos) {
+  return `<ul class="arbol">${nodos.map(n => `<li><span class="nodo">${IC.folder('var(--c)')} ${h(n.nombre)}</span>${n.hijos.length ? arbolHtml(n.hijos) : ''}</li>`).join('')}</ul>`;
+}
+
+function etiquetaAcceso(a) {
+  if (!a.nivel) return `<span class="acceso" style="position:static">${IC.lock} ${a.solicitudPendiente ? 'Solicitud enviada' : 'Acceso restringido'}</span>`;
+  if (a.nivel === 'lectura') return `<span class="acceso" style="position:static">${IC.eye} Solo lectura</span>`;
+  return `<span class="acceso" style="position:static">${IC.check} Acceso</span>`;
+}
+
+function tarjetaArea(a) {
+  const i = a.indicadores, s = i.salud;
+  const top = a.carpetas.slice(0, 4);
+  const resto = a.carpetas.length - top.length;
+  const acceso = !a.nivel
+    ? `<span class="acceso">${IC.lock} ${a.solicitudPendiente ? 'Solicitud enviada' : 'Restringido'}</span>`
+    : a.nivel === 'lectura' ? `<span class="acceso">${IC.eye} Lectura</span>` : '';
+  return `<button class="area${a.nivel ? '' : ' bloqueada'}" style="--c:${h(a.color)}" data-area="${h(a.id)}" aria-label="${h(a.nombre)}${a.nivel ? '' : ' (acceso restringido)'}">
+    ${acceso}
+    <div class="area-cab">${IC.folder(h(a.color))}<div style="padding-right:96px"><h3>${h(a.nombre)}</h3><div class="resp">${h(a.responsableNombre)}</div></div></div>
+    <div class="area-cuerpo">
+      <div class="chips">${top.map(c => `<span class="chip">${IC.folder('var(--c)')}${h(c.nombre)}</span>`).join('')}${resto > 0 ? `<span class="chip">+${resto}</span>` : ''}${!a.carpetas.length ? '<span class="small muted">Sin subcarpetas</span>' : ''}</div>
+    </div>
+    <div class="area-pie">
+      <span class="muted">${i.total} doc.</span>
+      <div class="barra" title="Salud documental"><i style="width:${s || 0}%;background:${colorSalud(s)}"></i></div>
+      <b class="${claseSalud(s)}" style="font-variant-numeric:tabular-nums">${s == null ? '—' : s + '%'}</b>
+    </div>
+  </button>`;
+}
+
+function entrarArea(areaId) {
+  const a = areaPorId(areaId);
+  if (a.nivel) return ir('area', areaId, null);
+  if (a.solicitudPendiente) {
+    return modal({ titulo: a.nombre, cuerpo: `<div class="aviso">${IC.lock}<div>Su solicitud de acceso a esta área ya fue enviada y está pendiente de aprobación.</div></div>`, acciones: [{ t: 'Entendido', p: true }] });
+  }
+  modal({
+    titulo: 'Acceso restringido',
+    cuerpo: `<div class="aviso" style="margin-bottom:14px">${IC.lock}<div>La carpeta <b>${h(a.nombre)}</b> está visible por transparencia institucional, pero su contenido es de acceso restringido. Responsable: <b>${h(a.responsableNombre)}</b>.</div></div>
+      <label class="campo">Motivo de la solicitud (opcional)<textarea id="m-motivo" maxlength="500" placeholder="Ej.: Necesito consultar el plan de trabajo para la auditoría interna."></textarea></label>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Solicitar acceso', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiSolicitarAcceso', areaId, $('#m-motivo').value).then(() => {
+          a.solicitudPendiente = true; cerrar(); toast('Solicitud enviada. Se notificó a la persona responsable.'); pintarMapa();
+        }).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ]
+  });
+}
+
+/* =====================================================================
+ *  Vista: Área / carpeta
+ * ===================================================================== */
+
+function vArea(areaId, carpetaId) {
+  S.areaActual = { areaId, carpetaId };
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Abriendo carpeta…</div>';
+  api('apiAbrirCarpeta', areaId, carpetaId || '').then(r => pintarArea(r)).catch(e => { falla(e); ir('mapa'); });
+}
+
+function pintarArea(r) {
+  const a = r.area, cap = r.capacidades, ind = areaPorId(a.id).indicadores || {};
+  S.areaActual.carpetaId = r.carpetaId;
+  const enRaiz = r.ruta.length === 1;
+  $('#main').innerHTML = `
+    <nav class="migas" aria-label="Ruta">
+      <button data-ir="mapa">Mapa documental</button>
+      ${r.ruta.map((p, i) => `<span>›</span>${i === r.ruta.length - 1 ? `<span class="actual">${h(p.nombre)}</span>` : `<button data-carpeta="${h(p.id)}">${h(p.nombre)}</button>`}`).join('')}
+    </nav>
+    <div class="banda" style="--c:${h(a.color)}">
+      ${IC.folder(h(a.color))}
+      <div class="info">
+        <h2>${h(enRaiz ? a.nombre : r.ruta[r.ruta.length - 1].nombre)}</h2>
+        <div class="small muted">${enRaiz ? 'Responsable: ' + h(a.responsableNombre) : h(a.nombre)} · ${cap.nivel === 'edicion' ? 'Acceso de edición' : 'Solo lectura'}</div>
+      </div>
+      ${enRaiz && ind.salud !== undefined ? `<div style="text-align:right"><div class="small muted">Salud documental</div><div class="${claseSalud(ind.salud)}" style="font:600 24px var(--sans)">${ind.salud == null ? '—' : ind.salud + '%'}</div></div>` : ''}
+    </div>
+    <div class="barra-herr">
+      ${cap.subir ? `<button class="btn btn-primary" id="b-subir">${IC.up} Subir documento</button>` : ''}
+      ${cap.crearCarpeta ? `<button class="btn" id="b-carpeta">${IC.plus} Nueva carpeta</button>` : ''}
+    </div>
+    ${r.subcarpetas.length ? `<div class="carpetas">${r.subcarpetas.map(c => `
+      <div class="carpeta" style="--c:${h(a.color)}" data-carpeta="${h(c.id)}" role="button" tabindex="0">
+        ${IC.folder(h(a.color))}
+        <div style="min-width:0"><div class="n">${h(c.nombre)}</div><div class="m">${c.documentos} doc.${c.subcarpetas ? ' · ' + c.subcarpetas + ' carp.' : ''}</div></div>
+        ${cap.crearCarpeta ? `<button class="btn btn-ghost btn-sm menu" data-renombrar="${h(c.id)}" data-nombre="${h(c.nombre)}" aria-label="Opciones de carpeta">${IC.pen}</button>` : ''}
+      </div>`).join('')}</div>` : ''}
+    ${tablaDocs(r.documentos, cap.subir ? 'Esta carpeta aún no tiene documentos. Use «Subir documento» para agregar el primero.' : 'Esta carpeta aún no tiene documentos.')}`;
+
+  $$('[data-ir]').forEach(b => b.addEventListener('click', () => ir(b.dataset.ir)));
+  $$('[data-carpeta]').forEach(b => {
+    const abrir = () => ir('area', a.id, b.dataset.carpeta);
+    b.addEventListener('click', abrir);
+    b.addEventListener('keydown', ev => { if (ev.key === 'Enter') abrir(); });
+  });
+  $$('[data-renombrar]').forEach(b => b.addEventListener('click', ev => { ev.stopPropagation(); modalCarpeta(a.id, b.dataset.renombrar, b.dataset.nombre); }));
+  if ($('#b-subir')) $('#b-subir').addEventListener('click', () => modalSubir(a.id, r.carpetaId));
+  if ($('#b-carpeta')) $('#b-carpeta').addEventListener('click', () => modalCarpeta(a.id, null, '', r.carpetaId));
+  enlazarDocs($('#main'));
+}
+
+function tablaDocs(docs, vacio, conArea) {
+  if (!docs.length) return `<div class="docs"><div class="vacio">${IC.doc}<div>${h(vacio)}</div></div></div>`;
+  return `<div class="docs">
+    <div class="doc-fila cab"><span>Código SIGESC</span><span>Documento</span><span>Estado</span><span class="c-ver">Ver.</span><span class="c-resp">Responsable</span><span class="c-rev">Revisión</span></div>
+    ${docs.map(d => `<button class="doc-fila" data-doc="${h(d.id)}">
+      <span class="mono c-cod">${h(d.sigesc)}</span>
+      <span class="nombre">${h(d.nombre)}<small>${conArea ? `<span class="swatch" style="display:inline-block;vertical-align:-1px;background:${h(areaPorId(d.areaId).color)}"></span> ${h(areaPorId(d.areaId).nombre)} · ` : ''}${h(d.archivo)} · ${tamano(d.tamano)}${d.coincidencia && d.coincidencia !== 'reciente' ? ` · coincide en ${h(d.coincidencia)}` : ''}</small></span>
+      <span class="c-est">${badgeEstado(d.estado)}</span>
+      <span class="c-ver muted">v${d.version}</span>
+      <span class="c-resp small">${h(d.responsableNombre)}</span>
+      <span class="c-rev small">${textoRevision(d)}</span>
+    </button>`).join('')}
+  </div>`;
+}
+
+function modalCarpeta(areaId, carpetaId, nombre, padreId) {
+  const editar = !!carpetaId;
+  modal({
+    titulo: editar ? 'Carpeta' : 'Nueva carpeta',
+    cuerpo: `<label class="campo">Nombre de la carpeta<input id="m-nombre" maxlength="80" value="${h(nombre)}" placeholder="Ej.: Informes, Plan de trabajo"></label>`,
+    acciones: [
+      ...(editar ? [{ t: 'Eliminar (si está vacía)', cls: 'btn-danger', fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiEliminarCarpeta', areaId, carpetaId).then(() => { cerrar(); toast('Carpeta eliminada.'); vArea(areaId, S.areaActual.carpetaId); }).catch(e => { btn.disabled = false; falla(e); });
+      } }] : []),
+      { t: 'Cancelar' },
+      { t: editar ? 'Guardar' : 'Crear carpeta', p: true, fn: (cerrar, btn) => {
+        const n = $('#m-nombre').value.trim();
+        if (!n) return toast('Escriba un nombre.', true);
+        btn.disabled = true;
+        const p = editar ? api('apiRenombrarCarpeta', areaId, carpetaId, n) : api('apiCrearCarpeta', areaId, padreId, n);
+        p.then(() => { cerrar(); toast(editar ? 'Carpeta renombrada.' : 'Carpeta creada.'); vArea(areaId, S.areaActual.carpetaId); }).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ],
+    alAbrir: () => $('#m-nombre').focus()
+  });
+}
+
+/* ---------- Lectura de archivos ---------- */
+function leerArchivo(file) {
+  return new Promise((resolver, rechazar) => {
+    const max = (S.ini.tamanoMaximoMB || 25) * 1024 * 1024;
+    if (file.size > max) return rechazar(new Error(`El archivo supera el límite de ${S.ini.tamanoMaximoMB} MB.`));
+    const fr = new FileReader();
+    fr.onload = () => resolver({ nombre: file.name, mimeType: file.type || 'application/octet-stream', base64: String(fr.result).split(',')[1] || '' });
+    fr.onerror = () => rechazar(new Error('No se pudo leer el archivo.'));
+    fr.readAsDataURL(file);
+  });
+}
+
+function zonaArchivo(id) {
+  return `<div class="zona-archivo" id="${id}-zona" tabindex="0" role="button">
+    ${IC.up}<div><b>Seleccione o arrastre un archivo</b></div>
+    <div class="small muted">Máximo ${S.ini.tamanoMaximoMB} MB</div>
+    <div class="small" id="${id}-nombre" style="margin-top:6px"></div>
+    <input type="file" id="${id}" class="hidden">
+  </div>`;
+}
+function enlazarZona(id, alElegir) {
+  const zona = $('#' + id + '-zona'), input = $('#' + id);
+  const elegir = (f) => { if (!f) return; $('#' + id + '-nombre').textContent = `${f.name} · ${tamano(f.size)}`; alElegir(f); };
+  zona.addEventListener('click', () => input.click());
+  zona.addEventListener('keydown', ev => { if (ev.key === 'Enter') input.click(); });
+  input.addEventListener('change', () => elegir(input.files[0]));
+  zona.addEventListener('dragover', ev => { ev.preventDefault(); zona.classList.add('sobre'); });
+  zona.addEventListener('dragleave', () => zona.classList.remove('sobre'));
+  zona.addEventListener('drop', ev => { ev.preventDefault(); zona.classList.remove('sobre'); elegir(ev.dataTransfer.files[0]); });
+}
+
+function camposEnvio(prefijo, marcado) {
+  return `<div class="campo ancho">Tipo de documento<select id="${prefijo}-tipo">${(S.ini.tiposEnvio || ['Informe']).map(t => `<option>${h(t)}</option>`).join('')}</select></div>
+    <label class="campo ancho">Período o fecha a la que corresponde<input id="${prefijo}-periodo" maxlength="80" placeholder="Ej.: Septiembre 2026, 1er trimestre, año escolar 2026-2027"></label>
+    <label class="campo ancho">Mensaje para Calidad (opcional)<textarea id="${prefijo}-msg" maxlength="500" placeholder="Ej.: Adjunto el informe mensual del segundo ciclo."></textarea></label>`;
+}
+function leerEnvio(prefijo) {
+  return { tipo: $('#' + prefijo + '-tipo').value, periodo: $('#' + prefijo + '-periodo').value, mensaje: $('#' + prefijo + '-msg').value };
+}
+
+function modalSubir(areaId, carpetaId, enviarCalidad) {
+  let archivo = null;
+  const u = S.ini.usuario;
+  const puedeEnviar = areaId !== S.ini.areaCalidad;
+  modal({
+    titulo: enviarCalidad ? 'Enviar informe a Calidad' : 'Subir documento',
+    ancho: false,
+    cuerpo: `
+      ${zonaArchivo('m-archivo')}
+      <div class="form-grid" style="margin-top:14px">
+        <label class="campo ancho">Nombre del documento<input id="m-nombre" maxlength="150" placeholder="Se toma del archivo si lo deja vacío"></label>
+        <label class="campo ancho">Descripción<textarea id="m-desc" maxlength="1000" placeholder="Breve descripción del contenido (opcional)"></textarea></label>
+        <label class="campo">Estado<select id="m-estado"><option>Vigente</option><option>En revisión</option></select></label>
+        <label class="campo">Próxima revisión<input id="m-rev" type="date" value="${sumarMeses(S.ini.revisionMeses || 12)}"></label>
+        <label class="campo ancho">Etiquetas<input id="m-etq" maxlength="200" placeholder="Ej.: plan anual, 2026, auditoría"></label>
+      </div>
+      ${puedeEnviar ? `<div class="envio-caja">
+        <label class="check"><input type="checkbox" id="m-enviar"${enviarCalidad ? ' checked' : ''}> <span><b>Enviar también al Departamento de Calidad</b> (informes, cronogramas…)</span></label>
+        <div class="form-grid${enviarCalidad ? '' : ' hidden'}" id="m-envio" style="margin-top:10px">${camposEnvio('m-env')}</div>
+      </div>` : ''}
+      <p class="small muted" style="margin:12px 0 0">Se guarda en <b>${h(areaPorId(areaId).nombre)}</b>. El código SIGESC se genera automáticamente. Responsable: <b>${h(u.nombre)} ${h(u.apellido)}</b>.</p>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: enviarCalidad ? 'Guardar y enviar' : 'Subir', p: true, fn: (cerrar, btn) => {
+        if (!archivo) return toast('Seleccione un archivo.', true);
+        const textoBtn = btn.textContent;
+        const enviar = puedeEnviar && $('#m-enviar').checked;
+        btn.disabled = true; btn.textContent = enviar ? 'Enviando…' : 'Subiendo…';
+        leerArchivo(archivo).then(a => api('apiSubirDocumento', {
+          areaId, carpetaId, archivo: a,
+          nombre: $('#m-nombre').value, descripcion: $('#m-desc').value, estado: $('#m-estado').value,
+          fechaRevision: $('#m-rev').value, etiquetas: $('#m-etq').value,
+          enviarCalidad: enviar ? leerEnvio('m-env') : null
+        })).then(d => {
+          cerrar();
+          toast(d.enviadoACalidad ? `Documento ${d.sigesc} guardado y enviado a Calidad.` : `Documento guardado con el código ${d.sigesc}.`);
+          refrescarInicio().catch(() => {});
+          if (S.vista === 'envios') vEnvios(); else vArea(areaId, carpetaId);
+        }).catch(e => { btn.disabled = false; btn.textContent = textoBtn; falla(e); });
+      } }
+    ],
+    alAbrir: () => {
+      enlazarZona('m-archivo', f => {
+        archivo = f;
+        if (!$('#m-nombre').value) $('#m-nombre').value = f.name.replace(/\.[^.]+$/, '');
+      });
+      if ($('#m-enviar')) $('#m-enviar').addEventListener('change', ev => $('#m-envio').classList.toggle('hidden', !ev.target.checked));
+    }
+  });
+}
+
+function modalEnviarDoc(d, alTerminar) {
+  modal({
+    titulo: 'Enviar a Calidad',
+    cuerpo: `<p class="small muted" style="margin-top:0">Se enviará <b>${h(d.sigesc)} «${h(d.nombre)}»</b> (versión ${d.version}) al Departamento de Calidad. El documento sigue guardado en su área.</p>
+      <div class="form-grid">${camposEnvio('e')}</div>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Enviar', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true; btn.textContent = 'Enviando…';
+        api('apiEnviarACalidad', d.id, leerEnvio('e')).then(() => { cerrar(); toast('Enviado a Calidad. Se notificó al departamento.'); alTerminar(); })
+          .catch(e => { btn.disabled = false; btn.textContent = 'Enviar'; falla(e); });
+      } }
+    ]
+  });
+}
+
+/* =====================================================================
+ *  Ficha del documento: versiones, historial, acciones
+ * ===================================================================== */
+
+function abrirDocumento(docId, pestana) {
+  const m = modal({ titulo: 'Documento', ancho: true, cuerpo: '<div class="cargando"><span class="giro"></span> Cargando…</div>', sinPie: true });
+  api('apiObtenerDocumento', docId).then(r => pintarDocumento(m, r, pestana || 'versiones')).catch(e => { m.cerrar(); falla(e); });
+}
+
+function pintarDocumento(m, r, pestana) {
+  const d = r.documento, cap = r.capacidades;
+  m.titulo(`<span class="mono muted" style="font-size:13px;display:block;font-family:var(--mono)">${h(d.sigesc)}</span>${h(d.nombre)}`);
+  m.cuerpo(`
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      ${badgeEstado(d.estado)}
+      <span class="badge b-neutro">Versión ${d.version}</span>
+      <span class="small muted"><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${h(r.area.color)}"></span> ${r.ruta.map(p => h(p.nombre)).join(' › ')}</span>
+    </div>
+    <div class="meta">
+      <div><span>Responsable</span>${h(d.responsableNombre)}</div>
+      <div><span>Creado</span>${fechaHora(d.creado)}</div>
+      <div><span>Última modificación</span>${fechaHora(d.modificado)}</div>
+      <div><span>Próxima revisión</span>${textoRevision(d)}</div>
+      <div><span>Archivo</span>${h(d.archivo)} · ${tamano(d.tamano)}</div>
+      <div><span>Etiquetas</span>${h(d.etiquetas || '—')}</div>
+      ${d.descripcion ? `<div style="grid-column:1/-1"><span>Descripción</span>${h(d.descripcion)}</div>` : ''}
+    </div>
+    ${(r.envios || []).length ? `<div class="envios-doc">${r.envios.map(e => `<div class="small">${IC.send} ${h(e.tipo)}${e.periodo ? ' · ' + h(e.periodo) : ''} enviado a Calidad el ${fechaHora(e.fecha)} (v${e.version}) · ${badgeEnvio(e.estado)}${e.comentario ? ` <span class="muted">«${h(e.comentario)}»</span>` : ''}</div>`).join('')}</div>` : ''}
+    <div class="barra-herr">
+      <button class="btn btn-primary" id="d-ver">${IC.eye} Ver</button>
+      <button class="btn" id="d-imprimir">${IC.print} Imprimir</button>
+      <button class="btn" id="d-bajar">${IC.down} Descargar</button>
+      ${cap.enviarCalidad && d.estado !== 'Obsoleto' ? `<button class="btn" id="d-enviar">${IC.send} Enviar a Calidad</button>` : ''}
+      ${cap.subir ? `<button class="btn" id="d-version">${IC.up} Nueva versión</button>` : ''}
+      ${cap.subir ? `<button class="btn" id="d-editar">${IC.pen} Editar datos</button>` : ''}
+      ${cap.cambiarEstado ? `<select id="d-estado" style="width:auto" aria-label="Cambiar estado">
+          <option value="">Cambiar estado…</option>
+          ${S.ini.estados.filter(e => e !== d.estado).map(e => `<option>${h(e)}</option>`).join('')}
+        </select>` : ''}
+    </div>
+    <div class="subtabs">
+      <button class="btn btn-sm${pestana === 'versiones' ? ' activa' : ''}" data-p="versiones">Versiones (${r.versiones.length})</button>
+      <button class="btn btn-sm${pestana === 'historial' ? ' activa' : ''}" data-p="historial">Historial de cambios (${r.historial.length})</button>
+    </div>
+    <div id="d-pestana"></div>`);
+
+  const pintarPestana = (p) => {
+    $$('[data-p]', m.el).forEach(b => b.classList.toggle('activa', b.dataset.p === p));
+    const cont = $('#d-pestana', m.el);
+    if (p === 'versiones') {
+      cont.innerHTML = `<div class="tabla-wrap"><table>
+        <thead><tr><th>Versión</th><th>Archivo</th><th>Fecha</th><th>Por</th><th>Nota</th><th></th></tr></thead>
+        <tbody>${r.versiones.map(v => `<tr>
+          <td><b>v${v.version}</b>${v.version === d.version ? ' <span class="badge b-vigente">actual</span>' : ''}</td>
+          <td>${h(v.archivo)}<div class="small muted">${tamano(v.tamano)}</div></td>
+          <td class="small">${fechaHora(v.fecha)}</td>
+          <td class="small">${h(v.usuarioNombre)}</td>
+          <td class="small">${h(v.nota || '—')}</td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-sm btn-icon" data-bajar-v="${v.version}" title="Descargar v${v.version}" aria-label="Descargar v${v.version}">${IC.down}</button>
+            <button class="btn btn-sm btn-icon" data-imprimir-v="${v.version}" title="Imprimir v${v.version}" aria-label="Imprimir v${v.version}">${IC.print}</button>
+            ${cap.restaurar && v.version !== d.version ? `<button class="btn btn-sm" data-restaurar="${v.version}">${IC.restore} Restaurar</button>` : ''}
+          </td></tr>`).join('')}</tbody></table></div>`;
+      $$('[data-bajar-v]', cont).forEach(b => b.addEventListener('click', () => descargar(d.id, Number(b.dataset.bajarV), 'descargar', b)));
+      $$('[data-imprimir-v]', cont).forEach(b => b.addEventListener('click', () => imprimir(d.id, Number(b.dataset.imprimirV), b)));
+      $$('[data-restaurar]', cont).forEach(b => b.addEventListener('click', () => {
+        const v = Number(b.dataset.restaurar);
+        confirmar(`¿Restaurar la versión ${v}? Se creará la versión ${d.version + 1} con ese contenido; la actual se conserva en el historial.`, 'Restaurar', (nota) =>
+          api('apiRestaurarVersion', d.id, v, nota).then(() => { toast(`Versión ${v} restaurada.`); recargar('versiones'); }), true);
+      }));
+    } else {
+      cont.innerHTML = r.historial.length ? `<ul class="linea-tiempo">${r.historial.map(a => `<li>
+        <div><b>${h(a.accionTexto)}</b> · ${h(a.nombre)} <span class="small muted">· ${fechaHora(a.fecha)}</span></div>
+        <div class="det">${h(a.detalle)}</div></li>`).join('')}</ul>` : '<div class="muted">Sin cambios registrados.</div>';
+    }
+  };
+  const recargar = (p) => api('apiObtenerDocumento', d.id).then(nr => { pintarDocumento(m, nr, p); if (S.vista === 'area') vArea(S.areaActual.areaId, S.areaActual.carpetaId); }).catch(falla);
+
+  $$('[data-p]', m.el).forEach(b => b.addEventListener('click', () => pintarPestana(b.dataset.p)));
+  pintarPestana(pestana);
+  $('#d-ver', m.el).addEventListener('click', (ev) => descargar(d.id, null, 'ver', ev.currentTarget));
+  $('#d-bajar', m.el).addEventListener('click', (ev) => descargar(d.id, null, 'descargar', ev.currentTarget));
+  $('#d-imprimir', m.el).addEventListener('click', (ev) => imprimir(d.id, null, ev.currentTarget));
+  if ($('#d-enviar', m.el)) $('#d-enviar', m.el).addEventListener('click', () => modalEnviarDoc(d, () => { refrescarContadores(); recargar('historial'); }));
+  if ($('#d-version', m.el)) $('#d-version', m.el).addEventListener('click', () => modalNuevaVersion(d, () => recargar('versiones')));
+  if ($('#d-editar', m.el)) $('#d-editar', m.el).addEventListener('click', () => modalEditarDoc(d, () => recargar('historial')));
+  if ($('#d-estado', m.el)) $('#d-estado', m.el).addEventListener('change', (ev) => {
+    const estado = ev.target.value;
+    if (!estado) return;
+    ev.target.value = '';
+    confirmar(`¿Cambiar el estado a «${estado}»?${estado === 'Vigente' && d.estado === 'En revisión' ? ' La próxima revisión se reprogramará automáticamente.' : ''}`, 'Cambiar estado', (nota) =>
+      api('apiCambiarEstado', d.id, estado, nota).then(() => { toast('Estado actualizado.'); refrescarInicio().catch(() => {}); recargar('historial'); }), true);
+  });
+}
+
+function modalNuevaVersion(d, alTerminar) {
+  let archivo = null;
+  modal({
+    titulo: `Nueva versión · ${d.sigesc}`,
+    cuerpo: `${zonaArchivo('m-archivo')}
+      <label class="campo" style="margin-top:14px">¿Qué cambió en esta versión?<textarea id="m-nota" maxlength="500" placeholder="Ej.: Se actualizó el cronograma del segundo trimestre."></textarea></label>
+      <p class="small muted" style="margin:10px 0 0">La versión ${d.version} se conservará y podrá restaurarse.</p>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: `Guardar como v${d.version + 1}`, p: true, fn: (cerrar, btn) => {
+        if (!archivo) return toast('Seleccione un archivo.', true);
+        btn.disabled = true; btn.textContent = 'Subiendo…';
+        leerArchivo(archivo).then(a => api('apiNuevaVersion', d.id, a, $('#m-nota').value))
+          .then(() => { cerrar(); toast(`Versión ${d.version + 1} guardada.`); alTerminar(); })
+          .catch(e => { btn.disabled = false; btn.textContent = `Guardar como v${d.version + 1}`; falla(e); });
+      } }
+    ],
+    alAbrir: () => enlazarZona('m-archivo', f => { archivo = f; })
+  });
+}
+
+function modalEditarDoc(d, alTerminar) {
+  modal({
+    titulo: 'Editar datos del documento',
+    cuerpo: `<div class="form-grid">
+      <label class="campo ancho">Nombre<input id="m-nombre" maxlength="150" value="${h(d.nombre)}"></label>
+      <label class="campo ancho">Descripción<textarea id="m-desc" maxlength="1000">${h(d.descripcion)}</textarea></label>
+      <label class="campo">Próxima revisión<input id="m-rev" type="date" value="${h(String(d.fechaRevision).slice(0, 10))}"></label>
+      <label class="campo">Etiquetas<input id="m-etq" maxlength="200" value="${h(d.etiquetas)}"></label>
+    </div>
+    <p class="small muted" style="margin:12px 0 0">Cada cambio queda registrado en el historial del documento.</p>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Guardar cambios', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiEditarDocumento', d.id, { nombre: $('#m-nombre').value, descripcion: $('#m-desc').value, fechaRevision: $('#m-rev').value, etiquetas: $('#m-etq').value })
+          .then(() => { cerrar(); toast('Datos actualizados.'); alTerminar(); })
+          .catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ]
+  });
+}
+
+/** Ver o descargar a través del portal (sin acceso directo a Drive). */
+function descargar(docId, version, modo, boton) {
+  const texto = boton ? boton.innerHTML : '';
+  if (boton) { boton.disabled = true; boton.innerHTML = '<span class="giro" style="width:16px;height:16px"></span>'; }
+  api('apiDescargar', docId, version, modo).then(r => {
+    if (boton) { boton.disabled = false; boton.innerHTML = texto; }
+    const bin = atob(r.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: r.mimeType });
+    const url = URL.createObjectURL(blob);
+    const visible = /^(application\/pdf|image\/|text\/)/.test(r.mimeType);
+    if (modo === 'ver' && visible) {
+      const esImg = /^image\//.test(r.mimeType);
+      modal({
+        titulo: r.nombre, ancho: true,
+        cuerpo: esImg ? `<img class="visor-img" src="${url}" alt="${h(r.nombre)}">` : `<iframe class="visor" src="${url}" title="${h(r.nombre)}"></iframe>`,
+        acciones: [{ t: 'Descargar', fn: () => bajarBlob(url, r.nombre) }, { t: 'Cerrar', p: true }],
+        alCerrar: () => setTimeout(() => URL.revokeObjectURL(url), 1000)
+      });
+    } else if (modo === 'ver') {
+      // Word, Excel, PowerPoint…: el servidor lo convierte a PDF para verlo aquí.
+      URL.revokeObjectURL(url);
+      imprimir(docId, version, null, true);
+    } else {
+      bajarBlob(url, r.nombre);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  }).catch(e => { if (boton) { boton.disabled = false; boton.innerHTML = texto; } falla(e); });
+}
+
+const ES_MOVIL = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function base64ABlob(b64, tipo) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: tipo });
+}
+
+/**
+ * Prepara cualquier documento como PDF (Word, Excel, PowerPoint, imágenes…) y
+ * abre una vista previa con los botones Imprimir, Abrir y Descargar.
+ */
+function imprimir(docId, version, boton, soloVer) {
+  const texto = boton ? boton.innerHTML : '';
+  if (boton) { boton.disabled = true; boton.innerHTML = '<span class="giro" style="width:16px;height:16px"></span> Preparando…'; }
+  else toast('Preparando el documento…');
+  api('apiImprimir', docId, version, soloVer ? 'ver' : 'imprimir').then(r => {
+    if (boton) { boton.disabled = false; boton.innerHTML = texto; }
+    const url = URL.createObjectURL(base64ABlob(r.base64, 'application/pdf'));
+    const abrir = () => { const w = window.open(url, '_blank'); if (!w) bajarBlob(url, r.nombre); };
+    const m = modal({
+      titulo: r.nombre, ancho: true,
+      cuerpo: ES_MOVIL
+        ? `<div class="aviso">${IC.print}<div>El documento está listo en PDF. Toque <b>Abrir PDF</b> y luego use <b>Compartir → Imprimir</b> (iPhone) o el menú <b>⋮ → Imprimir</b> (Android).</div></div>`
+        : `<iframe class="visor" id="visor-pdf" src="${url}" title="${h(r.nombre)}"></iframe>`,
+      acciones: [
+        { t: 'Descargar PDF', fn: () => bajarBlob(url, r.nombre) },
+        { t: 'Abrir PDF', fn: abrir },
+        { t: 'Imprimir', p: true, fn: () => {
+          const f = $('#visor-pdf');
+          try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { abrir(); }
+        } }
+      ],
+      alCerrar: () => setTimeout(() => URL.revokeObjectURL(url), 1000)
+    });
+    if (ES_MOVIL) {
+      const b = $$('.modal-pie button', m.el).find(x => x.textContent === 'Imprimir');
+      if (b) b.remove();
+      $$('.modal-pie button', m.el).find(x => x.textContent === 'Abrir PDF').classList.add('btn-primary');
+    }
+  }).catch(e => { if (boton) { boton.disabled = false; boton.innerHTML = texto; } falla(e); });
+}
+function bajarBlob(url, nombre) {
+  const a = document.createElement('a');
+  a.href = url; a.download = nombre;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* =====================================================================
+ *  Vista: Buscar
+ * ===================================================================== */
+
+function vBuscar() {
+  const areas = S.ini.mapa.filter(a => a.nivel);
+  $('#main').innerHTML = `
+    <div class="titulo-vista"><div><h1>Buscar documentos</h1>
+      <p class="muted">Por código SIGESC, nombre, etiquetas, responsable o por el contenido del documento.</p></div></div>
+    <form id="f-buscar" class="card" style="margin-bottom:16px">
+      <div class="filtros" style="margin:0">
+        <input id="q" placeholder="Ej.: SIGESC-CAL-2026-0003, plan de trabajo, matrícula…" style="flex:3 1 280px" autocomplete="off">
+        <select id="q-area"><option value="">Todas mis áreas</option>${areas.map(a => `<option value="${h(a.id)}">${h(a.nombre)}</option>`).join('')}</select>
+        <select id="q-estado"><option value="">Todos los estados</option>${S.ini.estados.map(e => `<option>${h(e)}</option>`).join('')}</select>
+        <button class="btn btn-primary" type="submit" style="flex:0 0 auto">${IC.search} Buscar</button>
+      </div>
+    </form>
+    <div id="resultados"></div>`;
+  const buscar = () => {
+    const cont = $('#resultados');
+    cont.innerHTML = '<div class="cargando"><span class="giro"></span> Buscando…</div>';
+    api('apiBuscar', $('#q').value, { areaId: $('#q-area').value, estado: $('#q-estado').value }).then(res => {
+      const q = $('#q').value.trim();
+      cont.innerHTML = `<p class="small muted">${q ? `${res.length} resultado(s) para «${h(q)}»` : 'Documentos modificados recientemente'}</p>` +
+        tablaDocs(res, q ? 'No se encontraron documentos.' : 'Todavía no hay documentos.', true);
+      enlazarDocs(cont);
+    }).catch(falla);
+  };
+  $('#f-buscar').addEventListener('submit', ev => { ev.preventDefault(); buscar(); });
+  $('#q').focus();
+  buscar();
+}
+
+/* =====================================================================
+ *  Vista: Mi tiempo (cronómetro e histórico)
+ * ===================================================================== */
+
+function vTiempo(usuario) {
+  const u = S.ini.usuario;
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Calculando…</div>';
+  enviarPulso();
+  api('apiHistorialUso', usuario || '', 30).then(r => {
+    const max = Math.max(60, ...r.serie.map(d => d.segundos));
+    const propio = r.usuario === u.usuario;
+    $('#main').innerHTML = `
+      <div class="titulo-vista"><div><h1>${propio ? 'Mi tiempo en el portal' : 'Tiempo de uso · ' + h(r.nombre)}</h1>
+        <p class="muted">Tiempo dedicado a buscar y guardar documentos, día por día.</p></div>
+        ${r.equipo ? `<select id="t-usuario" style="width:auto">${r.equipo.map(x => `<option value="${h(x.usuario)}"${x.usuario === r.usuario ? ' selected' : ''}>${h(x.nombre)}</option>`).join('')}</select>` : ''}
+      </div>
+      <div class="kpis kpis-4" style="margin-bottom:16px">
+        ${propio ? `<div class="kpi"><div class="l">Esta sesión</div><div class="v mono" id="t-sesion" style="font-size:28px">${reloj(S.reloj.sesion)}</div></div>` : ''}
+        <div class="kpi"><div class="l">Hoy</div><div class="v">${duracion((r.serie[r.serie.length - 1] || {}).segundos || 0)}</div></div>
+        <div class="kpi"><div class="l">Últimos 30 días</div><div class="v">${duracion(r.totalPeriodo)}</div></div>
+        <div class="kpi"><div class="l">Total histórico</div><div class="v">${duracion(r.totalHistorico)}</div></div>
+      </div>
+      <section class="card">
+        <h3>Minutos por día · últimos 30 días</h3>
+        <div class="uso-grafico" role="img" aria-label="Tiempo de uso diario de los últimos 30 días">
+          ${r.serie.map(d => `<div class="col"><i style="height:${Math.round(d.segundos / max * 100)}%"></i><span class="tip">${fechaCorta(d.fecha)} · ${duracion(d.segundos)}${d.sesiones ? ' · ' + d.sesiones + ' ingreso(s)' : ''}</span></div>`).join('')}
+        </div>
+        <div class="uso-ejes"><span>${fechaCorta(r.serie[0].fecha)}</span><span>Máximo: ${duracion(max)}</span><span>${fechaCorta(r.serie[r.serie.length - 1].fecha)}</span></div>
+        <details style="margin-top:12px"><summary class="small muted" style="cursor:pointer">Ver como tabla</summary>
+          <div class="tabla-wrap" style="margin-top:8px"><table><thead><tr><th>Fecha</th><th>Tiempo</th><th>Ingresos</th></tr></thead>
+          <tbody>${r.serie.slice().reverse().filter(d => d.segundos || d.sesiones).map(d => `<tr><td>${fechaLarga(new Date(d.fecha + 'T12:00:00'))}</td><td>${duracion(d.segundos)}</td><td>${d.sesiones}</td></tr>`).join('') || '<tr><td colspan="3" class="muted">Sin registros</td></tr>'}</tbody></table></div>
+        </details>
+      </section>
+      ${r.equipo ? `<section class="card" style="margin-top:16px"><h3>Equipo · últimos 30 días</h3>
+        <div class="tabla-wrap"><table><thead><tr><th>Persona</th><th>Tiempo</th><th>Días activos</th><th>Ingresos</th></tr></thead>
+        <tbody>${r.equipo.map(x => `<tr><td><button class="enlace" data-u="${h(x.usuario)}">${h(x.nombre)}</button></td><td>${duracion(x.segundos)}</td><td>${x.dias}</td><td>${x.sesiones}</td></tr>`).join('')}</tbody></table></div></section>` : ''}`;
+    if ($('#t-usuario')) $('#t-usuario').addEventListener('change', ev => vTiempo(ev.target.value));
+    $$('[data-u]').forEach(b => b.addEventListener('click', () => vTiempo(b.dataset.u)));
+    if (propio) {
+      const t = setInterval(() => { const el = $('#t-sesion'); if (!el) return clearInterval(t); el.textContent = reloj(S.reloj.sesion); }, 1000);
+    }
+  }).catch(falla);
+}
+
+/* =====================================================================
+ *  Vista: Envíos a Calidad (bandeja de Calidad / mis envíos)
+ * ===================================================================== */
+
+function badgeEnvio(estado) {
+  const cls = estado === 'Recibido' ? 'b-vigente' : estado === 'Enviado' ? 'b-revision' : 'b-obsoleto';
+  return `<span class="badge ${cls}">${h(estado === 'Enviado' ? 'Por revisar' : estado)}</span>`;
+}
+
+function refrescarContadores() {
+  return api('apiInicio').then(ini => { S.ini.enviosPendientes = ini.enviosPendientes; S.ini.solicitudesPendientes = ini.solicitudesPendientes; pintarTabs(); }).catch(() => {});
+}
+
+function vEnvios() {
+  const f = S.envFiltro || (S.envFiltro = { estado: S.ini.esCalidad ? 'Enviado' : '', areaId: '', tipo: '' });
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Cargando…</div>';
+  api('apiEnvios', f).then(r => {
+    const calidad = r.calidad;
+    const propia = areaPropia();
+    $('#main').innerHTML = `
+      <div class="titulo-vista"><div><h1>${calidad ? 'Bandeja de Calidad' : 'Envíos a Calidad'}</h1>
+        <p class="muted">${calidad ? 'Informes, cronogramas y demás documentos que las áreas envían al Departamento de Calidad.' : 'Envíe sus informes y cronogramas al Departamento de Calidad y vea si fueron recibidos.'}</p></div>
+        <div class="barra-herr" style="margin:0">
+          ${propia ? `<button class="btn btn-primary" id="b-env-nuevo">${IC.send} Enviar informe o cronograma</button>` : ''}
+          <button class="btn" id="b-env-imprimir">${IC.print} Imprimir lista</button>
+        </div>
+      </div>
+      <div class="filtros no-imprimir">
+        <select id="ef-estado"><option value="">Todos los estados</option>${['Enviado', 'Recibido', 'Devuelto'].map(e => `<option value="${e}"${f.estado === e ? ' selected' : ''}>${e === 'Enviado' ? 'Por revisar' : e}</option>`).join('')}</select>
+        <select id="ef-tipo"><option value="">Todos los tipos</option>${r.tipos.map(t => `<option${f.tipo === t ? ' selected' : ''}>${h(t)}</option>`).join('')}</select>
+        ${calidad ? `<select id="ef-area"><option value="">Todas las áreas</option>${S.ini.mapa.filter(a => a.id !== S.ini.areaCalidad).map(a => `<option value="${h(a.id)}"${f.areaId === a.id ? ' selected' : ''}>${h(a.nombre)}</option>`).join('')}</select>` : ''}
+      </div>
+      <p class="small muted">${r.envios.length} envío(s)${f.estado ? ' · ' + (f.estado === 'Enviado' ? 'por revisar' : f.estado.toLowerCase()) : ''}.</p>
+      ${r.envios.length ? `<div class="tabla-wrap"><table class="tabla-envios">
+        <thead><tr><th>Fecha</th><th>Área</th><th>Documento</th><th>Tipo</th><th>Enviado por</th><th>Estado</th><th class="no-imprimir"></th></tr></thead>
+        <tbody>${r.envios.map(e => `<tr>
+          <td class="small" style="white-space:nowrap">${fechaHora(e.fecha)}</td>
+          <td class="small"><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${h(e.areaColor)}"></span> ${h(e.areaNombre)}</td>
+          <td><button class="enlace" data-doc="${h(e.docId)}"><b>${h(e.documento)}</b></button>
+            <div class="small muted"><span class="mono">${h(e.sigesc)}</span> · v${e.version}${e.versionActual > e.version ? ` <span class="t-warn">(hay v${e.versionActual})</span>` : ''}</div>
+            ${e.mensaje ? `<div class="small">«${h(e.mensaje)}»</div>` : ''}</td>
+          <td class="small">${h(e.tipo)}${e.periodo ? `<div class="muted">${h(e.periodo)}</div>` : ''}</td>
+          <td class="small">${h(e.nombre)}</td>
+          <td>${badgeEnvio(e.estado)}${e.revisadoPorNombre ? `<div class="small muted">${h(e.revisadoPorNombre)} · ${fechaCorta(e.fechaRevisado)}</div>` : ''}${e.comentario ? `<div class="small">«${h(e.comentario)}»</div>` : ''}</td>
+          <td class="no-imprimir"><div class="acciones-envio">
+            <button class="btn btn-sm btn-icon" data-imp="${h(e.docId)}" data-v="${e.version}" title="Imprimir" aria-label="Imprimir">${IC.print}</button>
+            ${calidad && e.estado !== 'Recibido' ? `<button class="btn btn-sm" data-recibir="${h(e.id)}">${IC.check} Recibido</button>` : ''}
+            ${calidad && e.estado === 'Enviado' ? `<button class="btn btn-sm btn-danger" data-devolver="${h(e.id)}">Devolver</button>` : ''}
+          </div></td></tr>`).join('')}</tbody></table></div>` :
+        `<div class="card vacio">${calidad ? 'No hay envíos con estos filtros.' : 'Todavía no ha enviado documentos a Calidad.'}</div>`}`;
+    const refiltrar = () => { S.envFiltro = { estado: $('#ef-estado').value, tipo: $('#ef-tipo').value, areaId: $('#ef-area') ? $('#ef-area').value : '' }; vEnvios(); };
+    $$('#ef-estado, #ef-tipo, #ef-area').forEach(x => x.addEventListener('change', refiltrar));
+    if ($('#b-env-nuevo')) $('#b-env-nuevo').addEventListener('click', () => modalSubir(propia, null, true));
+    $('#b-env-imprimir').addEventListener('click', () => window.print());
+    $$('[data-imp]').forEach(b => b.addEventListener('click', () => imprimir(b.dataset.imp, Number(b.dataset.v), b)));
+    $$('[data-recibir]').forEach(b => b.addEventListener('click', () => {
+      b.disabled = true;
+      api('apiResolverEnvio', b.dataset.recibir, 'Recibido', '').then(() => { toast('Marcado como recibido. Se avisó a quien lo envió.'); refrescarContadores(); vEnvios(); }).catch(e => { b.disabled = false; falla(e); });
+    }));
+    $$('[data-devolver]').forEach(b => b.addEventListener('click', () => modal({
+      titulo: 'Devolver con observaciones',
+      cuerpo: '<label class="campo">Observaciones para el área<textarea id="dv-com" maxlength="500" placeholder="Ej.: Falta la firma y el anexo de asistencia."></textarea></label>',
+      acciones: [{ t: 'Cancelar' }, { t: 'Devolver', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiResolverEnvio', b.dataset.devolver, 'Devuelto', $('#dv-com').value).then(() => { cerrar(); toast('Envío devuelto. Se avisó a quien lo envió.'); refrescarContadores(); vEnvios(); }).catch(e => { btn.disabled = false; falla(e); });
+      } }],
+      alAbrir: () => $('#dv-com').focus()
+    })));
+    enlazarDocs($('#main'));
+  }).catch(falla);
+}
+
+/* =====================================================================
+ *  Vista: Solicitudes de acceso
+ * ===================================================================== */
+
+function vSolicitudes() {
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Cargando…</div>';
+  api('apiSolicitudes').then(lista => {
+    const pend = lista.filter(s => s.puedeResolver);
+    S.ini.solicitudesPendientes = pend.length;
+    pintarTabs();
+    $('#main').innerHTML = `
+      <div class="titulo-vista"><div><h1>Solicitudes de acceso</h1><p class="muted">Solicitudes para entrar a carpetas restringidas.</p></div></div>
+      ${lista.length ? `<div class="tabla-wrap"><table>
+        <thead><tr><th>Fecha</th><th>Persona</th><th>Área</th><th>Motivo</th><th>Estado</th><th></th></tr></thead>
+        <tbody>${lista.map(s => `<tr>
+          <td class="small">${fechaHora(s.fecha)}</td><td>${h(s.nombre)}</td><td>${h(s.areaNombre)}</td>
+          <td class="small">${h(s.motivo || '—')}</td>
+          <td><span class="badge ${s.estado === 'Aprobada' ? 'b-vigente' : s.estado === 'Pendiente' ? 'b-revision' : 'b-obsoleto'}">${h(s.estado)}</span>${s.estado === 'Aprobada' ? `<div class="small muted">${s.nivel === 'edicion' ? 'Edición' : 'Lectura'}</div>` : ''}</td>
+          <td style="white-space:nowrap">${s.puedeResolver ? `
+            <button class="btn btn-sm" data-aprobar="${h(s.id)}" data-nivel="lectura">Aprobar lectura</button>
+            <button class="btn btn-sm" data-aprobar="${h(s.id)}" data-nivel="edicion">Aprobar edición</button>
+            <button class="btn btn-sm btn-danger" data-rechazar="${h(s.id)}">Rechazar</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` :
+      '<div class="card vacio">No hay solicitudes.</div>'}`;
+    $$('[data-aprobar]').forEach(b => b.addEventListener('click', () => {
+      b.disabled = true;
+      api('apiResolverSolicitud', b.dataset.aprobar, true, b.dataset.nivel).then(() => { toast('Acceso otorgado.'); vSolicitudes(); }).catch(e => { b.disabled = false; falla(e); });
+    }));
+    $$('[data-rechazar]').forEach(b => b.addEventListener('click', () => {
+      b.disabled = true;
+      api('apiResolverSolicitud', b.dataset.rechazar, false, '').then(() => { toast('Solicitud rechazada.'); vSolicitudes(); }).catch(e => { b.disabled = false; falla(e); });
+    }));
+  }).catch(falla);
+}
+
+/* =====================================================================
+ *  Vista: Administración
+ * ===================================================================== */
+
+function vAdmin(tab) {
+  const u = S.ini.usuario;
+  if (!u.permisos.administrar) { S.admin.tab = 'auditoria'; return pintarAdmin(); }
+  if (tab) S.admin.tab = tab;
+  $('#main').innerHTML = '<div class="cargando"><span class="giro"></span> Cargando…</div>';
+  api('apiAdminDatos').then(datos => { S.admin.datos = datos; pintarAdmin(); }).catch(falla);
+}
+
+function pintarAdmin() {
+  const u = S.ini.usuario;
+  const tabs = u.permisos.administrar
+    ? [['usuarios', 'Usuarios'], ['areas', 'Áreas'], ['accesos', 'Accesos otorgados'], ['auditoria', 'Auditoría']]
+    : [['auditoria', 'Auditoría']];
+  $('#main').innerHTML = `
+    <div class="titulo-vista"><div><h1>${u.permisos.administrar ? 'Administración' : 'Auditoría'}</h1>
+      <p class="muted">${u.permisos.administrar ? 'Usuarios, áreas, permisos y registro de auditoría.' : 'Registro de quién subió, modificó o descargó cada documento.'}</p></div></div>
+    <div class="subtabs">${tabs.map(t => `<button class="btn btn-sm${S.admin.tab === t[0] ? ' activa' : ''}" data-at="${t[0]}">${t[1]}</button>`).join('')}</div>
+    <div id="admin-cont"></div>`;
+  $$('[data-at]').forEach(b => b.addEventListener('click', () => { S.admin.tab = b.dataset.at; pintarAdmin(); }));
+  ({ usuarios: adminUsuarios, areas: adminAreas, accesos: adminAccesos, auditoria: adminAuditoria })[S.admin.tab]();
+}
+
+function nombreArea(id) { const a = (S.admin.datos ? S.admin.datos.areas : S.ini.mapa).find(x => x.id === id); return a ? a.nombre : id; }
+
+function adminUsuarios() {
+  const D = S.admin.datos;
+  $('#admin-cont').innerHTML = `
+    <div class="barra-herr"><button class="btn btn-primary" id="b-nuevo-u">${IC.plus} Nuevo usuario</button></div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Usuario</th><th>Nombre</th><th>Rol</th><th>Áreas</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+      <tbody>${D.usuarios.map(x => `<tr>
+        <td class="mono">${h(x.usuario)}</td>
+        <td>${h(x.nombre)} ${h(x.apellido)}<div class="small muted">${h(x.cargo)}</div></td>
+        <td>${h(x.rolNombre)}</td>
+        <td class="small">${String(x.areas || '').split(',').filter(String).map(a => h(nombreArea(a))).join('<br>') || '—'}</td>
+        <td>${x.activo === 'SI' ? '<span class="badge b-vigente">Activo</span>' : '<span class="badge b-obsoleto">Inactivo</span>'}${x.debeCambiar === 'SI' ? '<div class="small t-warn">Clave genérica</div>' : ''}</td>
+        <td class="small">${x.ultimoAcceso ? fechaHora(x.ultimoAcceso) : '—'}</td>
+        <td style="white-space:nowrap"><button class="btn btn-sm" data-editar-u="${h(x.usuario)}">Editar</button>
+          <button class="btn btn-sm" data-reset="${h(x.usuario)}">${IC.key} Restablecer clave</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+  $('#b-nuevo-u').addEventListener('click', () => modalUsuario(null));
+  $$('[data-editar-u]').forEach(b => b.addEventListener('click', () => modalUsuario(D.usuarios.find(x => x.usuario === b.dataset.editarU))));
+  $$('[data-reset]').forEach(b => b.addEventListener('click', () => confirmar(`¿Restablecer la clave de ${b.dataset.reset} a la clave genérica? Deberá cambiarla al entrar.`, 'Restablecer', () =>
+    api('apiAdminRestablecerClave', b.dataset.reset).then(() => { toast('Clave restablecida.'); vAdmin(); }))));
+}
+
+function modalUsuario(x) {
+  const D = S.admin.datos;
+  const sus = x ? String(x.areas || '').split(',') : [];
+  modal({
+    titulo: x ? 'Editar usuario · ' + x.usuario : 'Nuevo usuario',
+    cuerpo: `<div class="form-grid">
+      <label class="campo">Nombre<input id="u-nombre" value="${h(x ? x.nombre : '')}"></label>
+      <label class="campo">Apellido(s)<input id="u-apellido" value="${h(x ? x.apellido : '')}"></label>
+      <label class="campo ancho">Cargo<input id="u-cargo" value="${h(x ? x.cargo : '')}"></label>
+      <label class="campo">Correo para avisos (opcional)<input id="u-email" type="email" value="${h(x ? x.email : '')}"></label>
+      <label class="campo">Rol<select id="u-rol">${D.roles.map(r => `<option value="${r.id}"${x && x.rol === r.id ? ' selected' : (!x && r.id === 'RESPONSABLE' ? ' selected' : '')}>${h(r.nombre)}</option>`).join('')}</select></label>
+      <div class="campo ancho">Áreas propias (acceso de edición)
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;margin-top:4px">
+          ${D.areas.filter(a => a.activa === 'SI').map(a => `<label class="check"><input type="checkbox" value="${h(a.id)}" class="u-area"${sus.indexOf(a.id) >= 0 ? ' checked' : ''}> ${h(a.nombre)}</label>`).join('')}
+        </div></div>
+      ${x ? `<label class="check ancho"><input type="checkbox" id="u-activo"${x.activo === 'SI' ? ' checked' : ''}> Usuario activo</label>` : ''}
+    </div>
+    ${x ? '' : '<p class="small muted" style="margin:12px 0 0">El usuario será <b>nombre.apellido</b> y entrará con la clave genérica; se le pedirá cambiarla.</p>'}`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Guardar', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiAdminGuardarUsuario', {
+          usuario: x ? x.usuario : '', nombre: $('#u-nombre').value.trim(), apellido: $('#u-apellido').value.trim(), cargo: $('#u-cargo').value.trim(),
+          email: $('#u-email').value.trim(), rol: $('#u-rol').value, areas: $$('.u-area').filter(c => c.checked).map(c => c.value).join(','),
+          activo: x ? $('#u-activo').checked : true
+        }).then(r => { cerrar(); toast(x ? 'Usuario actualizado.' : `Usuario ${r.usuario} creado.`); vAdmin(); }).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ]
+  });
+}
+
+const PASTELES = ['#D9E1F2', '#DCE9DF', '#F1E4CF', '#EDE3C4', '#E8DCE9', '#D8EAEB', '#F0DCDC', '#E4E7D4', '#EFDFD3', '#D8E5EF', '#E0DBEE', '#D6E9E0', '#E9E1D6', '#DDE4E8', '#EADFE4', '#E2EAD5'];
+
+function adminAreas() {
+  const D = S.admin.datos;
+  $('#admin-cont').innerHTML = `
+    <div class="barra-herr"><button class="btn btn-primary" id="b-nueva-a">${IC.plus} Nueva área</button></div>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Código</th><th>Área</th><th>Grupo</th><th>Responsable</th><th>Orden</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${D.areas.slice().sort((a, b) => a.orden - b.orden).map(a => `<tr>
+        <td class="mono">${h(a.id)}</td>
+        <td><span class="swatch" style="display:inline-block;vertical-align:-1px;background:${h(a.color)}"></span> ${h(a.nombre)}</td>
+        <td class="small">${h(a.grupo || '—')}</td>
+        <td class="small">${a.responsable ? h((D.usuarios.find(u => u.usuario === a.responsable) || {}).nombre + ' ' + (D.usuarios.find(u => u.usuario === a.responsable) || {}).apellido) : '<span class="t-warn">Pendiente</span>'}</td>
+        <td>${a.orden}</td>
+        <td>${a.activa === 'SI' ? '<span class="badge b-vigente">Activa</span>' : '<span class="badge b-obsoleto">Inactiva</span>'}</td>
+        <td><button class="btn btn-sm" data-editar-a="${h(a.id)}">Editar</button></td></tr>`).join('')}</tbody></table></div>`;
+  $('#b-nueva-a').addEventListener('click', () => modalArea(null));
+  $$('[data-editar-a]').forEach(b => b.addEventListener('click', () => modalArea(D.areas.find(a => a.id === b.dataset.editarA))));
+}
+
+function modalArea(a) {
+  const D = S.admin.datos;
+  const grupos = Array.from(new Set(D.areas.map(x => x.grupo).filter(String)));
+  modal({
+    titulo: a ? 'Editar área' : 'Nueva área',
+    cuerpo: `<div class="form-grid">
+      <label class="campo">Código (para SIGESC)<input id="a-id" maxlength="6" value="${h(a ? a.id : '')}" ${a ? 'disabled' : ''} placeholder="Ej.: BIB" style="text-transform:uppercase"></label>
+      <label class="campo">Orden en el mapa<input id="a-orden" type="number" min="0" value="${a ? a.orden : D.areas.length + 1}"></label>
+      <label class="campo ancho">Nombre del área / puesto<input id="a-nombre" value="${h(a ? a.nombre : '')}"></label>
+      <label class="campo ancho">Grupo (opcional, para agrupar áreas bajo un mismo paraguas)<input id="a-grupo" list="a-grupos" value="${h(a ? a.grupo : '')}">
+        <datalist id="a-grupos">${grupos.map(g => `<option value="${h(g)}">`).join('')}</datalist></label>
+      <label class="campo ancho">Responsable<select id="a-resp"><option value="">Pendiente de asignar</option>${D.usuarios.filter(u => u.activo === 'SI').map(u => `<option value="${h(u.usuario)}"${a && a.responsable === u.usuario ? ' selected' : ''}>${h(u.nombre)} ${h(u.apellido)}</option>`).join('')}</select></label>
+      <div class="campo ancho">Color de la carpeta
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px">
+          ${PASTELES.map(c => `<button type="button" class="swatch a-pastel" data-c="${c}" style="width:26px;height:26px;border-radius:6px;background:${c};cursor:pointer" aria-label="Color ${c}"></button>`).join('')}
+          <input id="a-color" type="color" value="${h(a ? a.color : PASTELES[D.areas.length % PASTELES.length])}" style="width:60px">
+        </div></div>
+      ${a ? `<label class="check ancho"><input type="checkbox" id="a-activa"${a.activa === 'SI' ? ' checked' : ''}> Área activa (visible en el mapa)</label>` : ''}
+    </div>
+    ${a ? '' : '<p class="small muted" style="margin:12px 0 0">Se creará automáticamente su carpeta en Drive.</p>'}`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Guardar', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        api('apiAdminGuardarArea', {
+          esNueva: !a, id: a ? a.id : $('#a-id').value, nombre: $('#a-nombre').value, grupo: $('#a-grupo').value,
+          color: $('#a-color').value, responsable: $('#a-resp').value, orden: $('#a-orden').value, activa: a ? $('#a-activa').checked : true
+        }).then(() => { cerrar(); toast('Área guardada.'); refrescarInicio().catch(() => {}); vAdmin(); }).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ],
+    alAbrir: (el) => $$('.a-pastel', el).forEach(b => b.addEventListener('click', () => { $('#a-color').value = b.dataset.c; }))
+  });
+}
+
+function adminAccesos() {
+  const D = S.admin.datos;
+  $('#admin-cont').innerHTML = `
+    <section class="card" style="margin-bottom:16px"><h3>Otorgar acceso adicional</h3>
+      <p class="small muted" style="margin:-6px 0 12px">Para dar a una persona acceso a un área que no es la suya (por ejemplo, para una auditoría).</p>
+      <div class="filtros" style="margin:0">
+        <select id="ac-u">${D.usuarios.filter(u => u.activo === 'SI').map(u => `<option value="${h(u.usuario)}">${h(u.nombre)} ${h(u.apellido)}</option>`).join('')}</select>
+        <select id="ac-a">${D.areas.filter(a => a.activa === 'SI').map(a => `<option value="${h(a.id)}">${h(a.nombre)}</option>`).join('')}</select>
+        <select id="ac-n"><option value="lectura">Solo lectura</option><option value="edicion">Edición</option></select>
+        <button class="btn btn-primary" id="ac-ok" style="flex:0 0 auto">Otorgar</button>
+      </div></section>
+    <div class="tabla-wrap"><table>
+      <thead><tr><th>Persona</th><th>Área</th><th>Nivel</th><th>Otorgado por</th><th>Fecha</th><th></th></tr></thead>
+      <tbody>${D.accesos.length ? D.accesos.map(x => `<tr><td>${h(x.nombre)}</td><td>${h(nombreArea(x.areaId))}</td><td>${x.nivel === 'edicion' ? 'Edición' : 'Lectura'}</td>
+        <td class="small">${h(x.otorgadoPor)}</td><td class="small">${fechaHora(x.fecha)}</td>
+        <td><button class="btn btn-sm btn-danger" data-revocar="${h(x.id)}">Revocar</button></td></tr>`).join('') : '<tr><td colspan="6" class="muted">No hay accesos adicionales.</td></tr>'}</tbody></table></div>`;
+  $('#ac-ok').addEventListener('click', (ev) => {
+    ev.target.disabled = true;
+    api('apiAdminOtorgarAcceso', $('#ac-u').value, $('#ac-a').value, $('#ac-n').value).then(() => { toast('Acceso otorgado.'); vAdmin(); }).catch(e => { ev.target.disabled = false; falla(e); });
+  });
+  $$('[data-revocar]').forEach(b => b.addEventListener('click', () => confirmar('¿Revocar este acceso?', 'Revocar', () =>
+    api('apiAdminRevocarAcceso', b.dataset.revocar).then(() => { toast('Acceso revocado.'); vAdmin(); }))));
+}
+
+const ACCIONES_AUD = { ENVIO: 'Envío a Calidad', REVISION_ENVIO: 'Revisión de envío', IMPRESION: 'Impresión', SUBIDA: 'Subida', NUEVA_VERSION: 'Nueva versión', EDICION: 'Edición de datos', ESTADO: 'Cambio de estado', RESTAURACION: 'Restauración', DESCARGA: 'Descarga', VISUALIZACION: 'Visualización', CARPETA: 'Carpeta', SOLICITUD: 'Solicitud de acceso', ACCESO: 'Acceso', ADMIN: 'Administración', LOGIN: 'Ingreso', LOGOUT: 'Salida', LOGIN_FALLIDO: 'Intento fallido', CAMBIO_CLAVE: 'Cambio de clave' };
+
+function adminAuditoria() {
+  const usuarios = S.admin.datos ? S.admin.datos.usuarios : [];
+  $('#admin-cont').innerHTML = `
+    <div class="filtros">
+      <input id="au-texto" placeholder="Buscar en el detalle, código o usuario">
+      ${usuarios.length ? `<select id="au-u"><option value="">Todas las personas</option>${usuarios.map(u => `<option value="${h(u.usuario)}">${h(u.nombre)} ${h(u.apellido)}</option>`).join('')}</select>` : ''}
+      <select id="au-acc"><option value="">Todas las acciones</option>${Object.keys(ACCIONES_AUD).map(k => `<option value="${k}">${ACCIONES_AUD[k]}</option>`).join('')}</select>
+      <select id="au-area"><option value="">Todas las áreas</option>${S.ini.mapa.map(a => `<option value="${h(a.id)}">${h(a.nombre)}</option>`).join('')}</select>
+      <button class="btn btn-primary" id="au-ok" style="flex:0 0 auto">${IC.search} Filtrar</button>
+      <button class="btn" id="au-csv" style="flex:0 0 auto">${IC.down} Exportar CSV</button>
+    </div>
+    <div id="au-res"><div class="cargando"><span class="giro"></span> Cargando…</div></div>`;
+  let ultimo = [];
+  const cargar = () => {
+    $('#au-res').innerHTML = '<div class="cargando"><span class="giro"></span> Cargando…</div>';
+    api('apiAuditoria', { texto: $('#au-texto').value, usuario: $('#au-u') ? $('#au-u').value : '', accion: $('#au-acc').value, areaId: $('#au-area').value, limite: 500 }).then(lista => {
+      ultimo = lista;
+      $('#au-res').innerHTML = `<p class="small muted">${lista.length} registro(s), del más reciente al más antiguo.</p>
+        <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Persona</th><th>Acción</th><th>Área</th><th>Documento</th><th>Detalle</th></tr></thead>
+        <tbody>${lista.map(a => `<tr><td class="small" style="white-space:nowrap">${fechaHora(a.fecha)}</td><td class="small">${h(a.nombre)}</td><td class="small">${h(a.accionTexto)}</td>
+          <td class="small">${a.areaId ? h(nombreArea(a.areaId)) : '—'}</td><td class="mono">${a.docId ? `<button class="enlace" data-doc="${h(a.docId)}">${h(a.sigesc)}</button>` : '—'}</td><td class="small">${h(a.detalle)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">Sin registros.</td></tr>'}</tbody></table></div>`;
+      enlazarDocs($('#au-res'));
+    }).catch(falla);
+  };
+  $('#au-ok').addEventListener('click', cargar);
+  $('#au-csv').addEventListener('click', () => {
+    const filas = [['Fecha', 'Usuario', 'Nombre', 'Acción', 'Área', 'Código SIGESC', 'Detalle']].concat(ultimo.map(a => [a.fecha, a.usuario, a.nombre, a.accionTexto, a.areaId, a.sigesc, a.detalle]));
+    const csv = '﻿' + filas.map(f => f.map(c => '"' + String(c || '').replace(/"/g, '""') + '"').join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    bajarBlob(url, `auditoria-sigesc-${hoyIso()}.csv`);
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  });
+  cargar();
+}
+
+/* =====================================================================
+ *  Notificaciones y menú de usuario
+ * ===================================================================== */
+
+function actualizarCampana(n) {
+  const el = $('#notif-n');
+  el.textContent = n > 9 ? '9+' : String(n);
+  el.classList.toggle('hidden', !n);
+}
+
+$('#b-notif').addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  if ($('.panel-notif')) return cerrarCapas();
+  cerrarCapas();
+  const p = document.createElement('div');
+  p.className = 'panel-notif';
+  p.innerHTML = '<h3 style="margin-bottom:8px">Notificaciones</h3><div class="cargando"><span class="giro"></span></div>';
+  p.addEventListener('click', e => e.stopPropagation());
+  $('#capa').appendChild(p);
+  api('apiNotificaciones').then(lista => {
+    p.innerHTML = `<h3 style="margin-bottom:8px">Notificaciones</h3>` + (lista.length ? `<div class="lista">${lista.map(n => `
+      <div class="lista-item"><span class="pt" style="${n.leida === 'SI' ? 'background:var(--line)' : ''}"></span>
+        <div class="que"><b>${h(n.tipo)}</b><div class="small">${n.docId ? `<button class="enlace" data-doc="${h(n.docId)}">${h(n.mensaje)}</button>` : h(n.mensaje)}</div></div>
+        <div class="cuando">${hace(n.fecha)}</div></div>`).join('')}</div>` : '<div class="muted small">No tiene notificaciones.</div>');
+    enlazarDocs(p);
+    if (lista.some(n => n.leida !== 'SI')) api('apiMarcarLeidas').then(() => actualizarCampana(0)).catch(() => {});
+  }).catch(falla);
+});
+
+$('#b-usuario').addEventListener('click', (ev) => {
+  ev.stopPropagation();
+  if ($('.menu-usuario')) return cerrarCapas();
+  cerrarCapas();
+  const u = S.ini.usuario;
+  const voz = leerLocal('sigesc_voz') !== 'no';
+  const m = document.createElement('div');
+  m.className = 'menu-usuario';
+  m.innerHTML = `<div class="quien"><b>${h(u.nombre)} ${h(u.apellido)}</b><div class="small muted">${h(u.cargo || u.rolNombre)}</div><div class="small mono muted">${h(u.usuario)}</div></div>
+    <button data-acc="clave">${IC.key} Cambiar clave</button>
+    <button data-acc="prefs">${IC.mail} Avisos por correo</button>
+    <button data-acc="voz">${IC.speaker} Saludo en voz: ${voz ? 'activado' : 'desactivado'}</button>
+    <button data-acc="salir">${IC.out} Salir</button>`;
+  m.addEventListener('click', e => e.stopPropagation());
+  $('#capa').appendChild(m);
+  $$('[data-acc]', m).forEach(b => b.addEventListener('click', () => {
+    cerrarCapas();
+    const acc = b.dataset.acc;
+    if (acc === 'clave') modalClave(false);
+    if (acc === 'prefs') modalPreferencias();
+    if (acc === 'voz') { guardarLocal('sigesc_voz', voz ? 'no' : 'si'); toast(voz ? 'Saludo en voz desactivado.' : 'Saludo en voz activado.'); }
+    if (acc === 'salir') salir();
+  }));
+});
+
+document.addEventListener('click', () => cerrarCapas(true));
+function cerrarCapas(soloMenus) {
+  $$('.panel-notif, .menu-usuario').forEach(e => e.remove());
+}
+
+function modalClave(obligatoria) {
+  modal({
+    titulo: obligatoria ? 'Cambie su clave genérica' : 'Cambiar clave',
+    cuerpo: `${obligatoria ? `<div class="aviso" style="margin-bottom:14px">${IC.alert}<div>Está usando la clave genérica compartida. Por seguridad, le recomendamos crear su clave personal ahora.</div></div>` : ''}
+      <div class="form-grid">
+        <label class="campo ancho">Clave actual<input id="c-actual" type="password" autocomplete="current-password"></label>
+        <label class="campo">Nueva clave<input id="c-nueva" type="password" autocomplete="new-password" minlength="6"></label>
+        <label class="campo">Repita la nueva clave<input id="c-repite" type="password" autocomplete="new-password"></label>
+      </div><p class="small muted" style="margin:10px 0 0">Mínimo 6 caracteres.</p>`,
+    acciones: [
+      { t: obligatoria ? 'Más tarde' : 'Cancelar' },
+      { t: 'Guardar clave', p: true, fn: (cerrar, btn) => {
+        if ($('#c-nueva').value !== $('#c-repite').value) return toast('Las claves nuevas no coinciden.', true);
+        btn.disabled = true;
+        api('apiCambiarClave', $('#c-actual').value, $('#c-nueva').value).then(() => { cerrar(); S.ini.usuario.debeCambiar = false; toast('Clave actualizada.'); }).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ],
+    alAbrir: () => $('#c-actual').focus()
+  });
+}
+
+function modalPreferencias() {
+  const u = S.ini.usuario;
+  modal({
+    titulo: 'Avisos por correo',
+    cuerpo: `<p class="small muted" style="margin-top:0">Además de la campana del portal, puede recibir por correo los avisos de revisiones por vencer, documentos nuevos en su área y solicitudes de acceso.</p>
+      <label class="campo">Correo electrónico<input id="p-email" type="email" value="${h(u.email || '')}" placeholder="nombre@ejemplo.com"></label>
+      <label class="check" style="margin-top:12px"><input type="checkbox" id="p-notif"${u.notificarEmail ? ' checked' : ''}> Enviarme avisos por correo</label>`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: 'Guardar', p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        const prefs = { email: $('#p-email').value.trim(), notificarEmail: $('#p-notif').checked };
+        api('apiGuardarPreferencias', prefs).then(() => { u.email = prefs.email; u.notificarEmail = prefs.notificarEmail && !!prefs.email; cerrar(); toast('Preferencias guardadas.'); }).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ]
+  });
+}
+
+/* ---------- Tema ---------- */
+function pintarBotonTema() {
+  const oscuro = document.documentElement.getAttribute('data-theme') === 'dark';
+  $('#b-tema').innerHTML = oscuro ? IC.sun : IC.moon;
+  $('#b-tema').setAttribute('aria-label', oscuro ? 'Usar modo claro' : 'Usar modo oscuro');
+}
+$('#b-tema').addEventListener('click', () => {
+  const oscuro = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (oscuro) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', 'dark');
+  guardarLocal('sigesc_tema', oscuro ? 'light' : 'dark');
+  pintarBotonTema();
+});
+
+/* =====================================================================
+ *  Modal genérico
+ * ===================================================================== */
+
+function modal(o) {
+  const velo = document.createElement('div');
+  velo.className = 'velo';
+  velo.innerHTML = `<div class="modal${o.ancho ? ' ancho' : ''}" role="dialog" aria-modal="true">
+    <div class="modal-cab"><h2></h2><button class="btn btn-ghost btn-icon" data-cerrar aria-label="Cerrar">${IC.x}</button></div>
+    <div class="modal-cuerpo"></div>
+    ${o.sinPie ? '' : '<div class="modal-pie"></div>'}
+  </div>`;
+  const el = $('.modal', velo);
+  const api_ = {
+    el,
+    titulo: (t) => { $('.modal-cab h2', el).innerHTML = t; },
+    cuerpo: (c) => { $('.modal-cuerpo', el).innerHTML = c; },
+    cerrar: () => { velo.remove(); document.removeEventListener('keydown', esc); if (o.alCerrar) o.alCerrar(); }
+  };
+  const esc = (ev) => { if (ev.key === 'Escape' && document.body.lastElementChild === velo) api_.cerrar(); };
+  $('.modal-cab h2', el).textContent = o.titulo || '';
+  api_.cuerpo(o.cuerpo || '');
+  if (!o.sinPie) {
+    (o.acciones || [{ t: 'Cerrar', p: true }]).forEach(a => {
+      const b = document.createElement('button');
+      b.className = 'btn' + (a.p ? ' btn-primary' : '') + (a.cls ? ' ' + a.cls : '');
+      b.textContent = a.t;
+      b.addEventListener('click', () => a.fn ? a.fn(api_.cerrar, b) : api_.cerrar());
+      $('.modal-pie', el).appendChild(b);
+    });
+  }
+  $('[data-cerrar]', el).addEventListener('click', api_.cerrar);
+  velo.addEventListener('mousedown', ev => { if (ev.target === velo) api_.cerrar(); });
+  document.addEventListener('keydown', esc);
+  document.body.appendChild(velo);
+  if (o.alAbrir) o.alAbrir(el);
+  return api_;
+}
+
+function confirmar(texto, boton, accion, conNota) {
+  modal({
+    titulo: 'Confirmar',
+    cuerpo: `<p style="margin-top:0">${h(texto)}</p>${conNota ? '<label class="campo">Nota (opcional)<input id="cf-nota" maxlength="300"></label>' : ''}`,
+    acciones: [
+      { t: 'Cancelar' },
+      { t: boton, p: true, fn: (cerrar, btn) => {
+        btn.disabled = true;
+        Promise.resolve(accion(conNota ? $('#cf-nota').value : undefined)).then(cerrar).catch(e => { btn.disabled = false; falla(e); });
+      } }
+    ]
+  });
+}
+
+/* =====================================================================
+ *  Inicio de la página
+ * ===================================================================== */
+
+pintarMarca();
+pintarBotonTema();
+S.token = leerSesion();
+if (S.token) arrancar(false); else mostrarLogin();
+</script>
